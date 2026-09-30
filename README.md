@@ -18,6 +18,12 @@ English | [中文](README_CN.md) | [日本語](README_JA.md)
 
 </div>
 
+> This repository is the `sprout-sub2api-fork` maintained for
+> `如此萌屋 · 芽系列·初芽`. It provides the AI model gateway for child-facing
+> devices, including routing, quota, audit, and child-content safety policy.
+> Upstream Sub2API attribution, license, and sponsor information remain
+> unchanged.
+
 ## ⚠️ Important Notice
 
 Please read the following carefully before using this project:
