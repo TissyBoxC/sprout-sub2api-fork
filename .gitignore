@@ -1,5 +1,31 @@
-# 本地杂项文档、测试数据和外部项目副本
+# 本地杂项测试数据和外部项目副本
 /docs-local/
+.codex
+
+# 仓库内容策略：只提交代码、运行资源和 README
+docs/*
+documentation/
+openspec/
+skills/
+dev-docs/
+*.md
+!README.md
+!README.*.md
+!README_CN.md
+!README_JA.md
+!**/README.md
+!**/README.*.md
+!**/README
+
+# 合规页面会在构建时直接读取这两个文件，保留为唯一 docs 例外
+!docs/legal/
+docs/legal/*
+!docs/legal/admin-compliance.en.md
+!docs/legal/admin-compliance.zh.md
+# Upstream CLA workflow references this document by exact path
+!CLA.md
+
+# 上游开发说明和规范目录不进入 fork
 .codex
 
 # ===================
@@ -132,23 +158,6 @@ backend/cmd/server/server
 deploy/docker-compose.override.yml
 .gocache/
 vite.config.js
-docs/*
-!docs/PAYMENT.md
-!docs/PAYMENT_CN.md
-!docs/ADMIN_PAYMENT_INTEGRATION_API.md
-!docs/ASYNC_IMAGE_TASKS.md
-!docs/BATCH_IMAGE_MVP.md
-!docs/COMPOSITE_GROUPS.md
-!docs/PLUGIN_DEVELOPMENT.md
-!docs/channel-monitor-v2-safe-defaults.md
-!docs/codex-credits.md
-!docs/legal/
-!docs/legal/*.md
-!docs/screenshots/
-docs/screenshots/*
-!docs/screenshots/mobile-account-actions-menu.png
-!docs/screenshots/codex-referral-dialog.png
-!docs/screenshots/codex-referral-success.png
 .serena/
 .codex/
 frontend/coverage/
