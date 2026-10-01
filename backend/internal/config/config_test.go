@@ -88,6 +88,44 @@ func TestLoadSimpleModeKeyRateLimitEnabledFromEnvironment(t *testing.T) {
 	require.True(t, cfg.SimpleModeKeyRateLimitEnabled)
 }
 
+func TestSproutInternalAPIDisabledByDefault(t *testing.T) {
+	resetViperWithJWTSecret(t)
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.False(t, cfg.Sprout.InternalAPI.Enabled)
+	require.Empty(t, cfg.Sprout.InternalAPI.Token)
+}
+
+func TestValidateSproutInternalAPIRequiresStrongTokenWhenEnabled(t *testing.T) {
+	tests := []struct {
+		name        string
+		token       string
+		wantErrText string
+	}{
+		{name: "missing token", wantErrText: "sprout.internal_api.token"},
+		{name: "short token", token: strings.Repeat("x", 31), wantErrText: "sprout.internal_api.token"},
+		{name: "valid token", token: strings.Repeat("x", 32)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resetViperWithJWTSecret(t)
+			t.Setenv("SPROUT_INTERNAL_API_ENABLED", "true")
+			t.Setenv("SPROUT_INTERNAL_API_TOKEN", tt.token)
+
+			cfg, err := Load()
+			if tt.wantErrText == "" {
+				require.NoError(t, err)
+				require.NotNil(t, cfg)
+				return
+			}
+			require.Nil(t, cfg)
+			require.ErrorContains(t, err, tt.wantErrText)
+		})
+	}
+}
+
 func TestLoadRedisUsernameFromEnvironment(t *testing.T) {
 	resetViperWithJWTSecret(t)
 	t.Setenv("REDIS_USERNAME", "app-user")
