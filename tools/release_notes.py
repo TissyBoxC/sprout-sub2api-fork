@@ -76,6 +76,9 @@ DESCRIPTION_TITLES = {
 DESCRIPTION_PHRASES = {
     "automate chinese version releases": "自动化中文版本发布",
     "bounded chinese release notes": "限制中文发行说明的长度",
+    "bump version to 0.2.13": "将版本号更新到 0.2.13",
+    "generate bounded chinese release notes": "生成长度受限的中文发行说明",
+    "generate fork-scoped chinese release notes": "生成仅覆盖芽系列改动的中文发行说明",
     "identify sprout sub2api fork": "标明芽系列 fork 品牌信息",
     "internal api config guard": "新增内部接口配置校验",
     "internal api contract": "新增内部接口契约",
@@ -84,6 +87,7 @@ DESCRIPTION_PHRASES = {
     "request label middleware": "新增请求标签中间件",
     "require explicit previous release range": "强制指定上一发行版本范围",
     "restrict tracked documentation": "仅跟踪代码与 README",
+    "resolve fork baseline without upstream tags": "在不依赖上游标签的情况下解析分支基线",
     "select previous release tag explicitly": "明确选择上一发行标签",
     "secured internal runtime api": "开放受保护的内部运行时接口",
     "update axios to patched release": "更新 Axios 到安全修复版本",
@@ -169,10 +173,20 @@ def localize_description(description: str) -> str:
     words = description.split(maxsplit=1)
     if not words:
         return description
+
+    # Preserve the original wording when a commit is already readable in
+    # Chinese, so release notes stay specific instead of becoming generic.
+    if contains_cjk(description):
+        return description.rstrip("。.!！")
+
     action = DESCRIPTION_TITLES.get(words[0].lower())
     if action is None:
-        return "完善相关功能"
+        return description
     return action
+
+
+def contains_cjk(text: str) -> bool:
+    return any("\u4e00" <= character <= "\u9fff" for character in text)
 
 
 def render_commit_lines(commits: list[dict[str, str]], repository: str) -> list[str]:
