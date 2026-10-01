@@ -82,6 +82,7 @@ DESCRIPTION_PHRASES = {
     "identify sprout sub2api fork": "标明芽系列 fork 品牌信息",
     "internal api config guard": "新增内部接口配置校验",
     "internal api contract": "新增内部接口契约",
+    "localize release note fallback": "完善发行说明的中文回退文本",
     "make asset publishing idempotent": "使发行附件发布可重复执行",
     "polish japanese fork notice": "完善日文 fork 说明",
     "preserve concrete release note descriptions": "保留具体的发行说明内容",
