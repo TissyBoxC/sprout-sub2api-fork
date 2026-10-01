@@ -1,0 +1,123 @@
+openapi: 3.0.3
+info:
+  title: sprout-sub2api internal API
+  version: 1.0.0
+  description: |
+    Private service API exposed by the sprout sub2api fork.
+    It is disabled by default and requires a service token when enabled.
+servers:
+  - url: /
+tags:
+  - name: internal
+    description: Service-to-service endpoints
+paths:
+  /internal/sprout/v1/runtime:
+    get:
+      tags:
+        - internal
+      operationId: getSproutInternalRuntime
+      summary: Return the runtime capabilities of the AI gateway
+      security:
+        - serviceToken: []
+      responses:
+        "200":
+          description: Runtime information for an authenticated service
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SproutRuntimeEnvelope"
+        "401":
+          description: Missing or invalid service token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SproutErrorEnvelope"
+components:
+  securitySchemes:
+    serviceToken:
+      type: http
+      scheme: bearer
+      bearerFormat: service-token
+      description: Service token configured through sprout.internal_api.token
+  schemas:
+    SproutRuntimeEnvelope:
+      type: object
+      additionalProperties: false
+      required:
+        - schema_version
+        - request_id
+        - data
+        - error
+      properties:
+        schema_version:
+          type: string
+          const: "1.0.0"
+        request_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        data:
+          $ref: "#/components/schemas/SproutRuntime"
+        error:
+          type: "null"
+    SproutRuntime:
+      type: object
+      additionalProperties: false
+      required:
+        - service
+        - status
+        - protocol_version
+        - capabilities
+      properties:
+        service:
+          type: string
+          const: sprout-sub2api
+        status:
+          type: string
+          const: running
+        protocol_version:
+          type: string
+          const: "1.0.0"
+        capabilities:
+          type: array
+          items:
+            type: string
+          contains:
+            const: service_token_auth
+    SproutErrorEnvelope:
+      type: object
+      additionalProperties: false
+      required:
+        - schema_version
+        - request_id
+        - data
+        - error
+      properties:
+        schema_version:
+          type: string
+          const: "1.0.0"
+        request_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        data:
+          type: "null"
+        error:
+          type: object
+          additionalProperties: false
+          required:
+            - code
+            - message
+            - retryable
+          properties:
+            code:
+              type: string
+              enum:
+                - unauthenticated
+            message:
+              type: string
+              minLength: 1
+              maxLength: 256
+            retryable:
+              type: boolean
+              const: false
