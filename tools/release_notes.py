@@ -84,6 +84,7 @@ DESCRIPTION_PHRASES = {
     "internal api contract": "新增内部接口契约",
     "make asset publishing idempotent": "使发行附件发布可重复执行",
     "polish japanese fork notice": "完善日文 fork 说明",
+    "preserve concrete release note descriptions": "保留具体的发行说明内容",
     "request label middleware": "新增请求标签中间件",
     "require explicit previous release range": "强制指定上一发行版本范围",
     "restrict tracked documentation": "仅跟踪代码与 README",
