@@ -1,16 +1,17 @@
 <div align="center">
 
-<img src="assets/brand/sprout/brand_banner.png" alt="如此萌屋" width="640" />
+<img src="assets/brand/sprout/brand_avatar.png" alt="如此萌屋" width="180" />
 
 # 如此萌屋 · 芽系列 · 初芽 AI 网关
 
 **基于 Sub2API 的 `sprout-sub2api-fork`**
 
-[![Go](https://img.shields.io/badge/Go-1.27.0-00ADD8.svg)](https://golang.org/)
-[![Vue](https://img.shields.io/badge/Vue-3.4+-4FC08D.svg)](https://vuejs.org/)
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-336791.svg)](https://www.postgresql.org/)
-[![Redis](https://img.shields.io/badge/Redis-7+-DC382D.svg)](https://redis.io/)
-[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg)](https://www.docker.com/)
+[![Go](https://img.shields.io/badge/Go-1.27.0-00ADD8?logo=go&logoColor=white)](https://go.dev/)
+[![Vue](https://img.shields.io/badge/Vue-3.4+-4FC08D?logo=vuedotjs&logoColor=white)](https://vuejs.org/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![Redis](https://img.shields.io/badge/Redis-7+-DC382D?logo=redis&logoColor=white)](https://redis.io/)
+[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
+[![License](https://img.shields.io/badge/License-LGPL--3.0--or--later-blue.svg)](LICENSE)
 
 <a href="https://trendshift.io/repositories/21823" target="_blank"><img src="https://trendshift.io/api/badge/repositories/21823" alt="Wei-Shaw%2Fsub2api | Trendshift" width="250" height="55"/></a>
 
@@ -18,6 +19,9 @@
 上游 Sub2API 的版权、许可证和赞助信息保持不变。
 
 English | [中文](README_CN.md) | [日本語](README_JA.md)
+
+<!-- COMMUNITY_LINKS_START: 群链接待补充。 -->
+<!-- DOCUMENTATION_LINKS_START: 项目文档入口待补充。 -->
 
 </div>
 
