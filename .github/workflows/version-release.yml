@@ -1,0 +1,75 @@
+name: Version Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - backend/cmd/server/VERSION
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: write
+
+concurrency:
+  group: version-release-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Create annotated release tag
+        id: create_tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(tr -d '[:space:]' < backend/cmd/server/VERSION)"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid VERSION: $version" >&2
+            exit 1
+          fi
+
+          tag="v$version"
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            echo "Tag $tag already exists; skipping."
+            exit 0
+          fi
+
+          python tools/release_notes.py \
+            --version "$version" \
+            --current-tag "$tag" \
+            --repository "$GITHUB_REPOSITORY" \
+            --output release-notes.md
+          cat release-notes.md
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$tag" -F release-notes.md
+          git push origin "$tag"
+
+          {
+            echo "should_release=true"
+            echo "tag=$tag"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch the existing release workflow
+        if: steps.create_tag.outputs.should_release == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.create_tag.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh workflow run release.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
+            -f tag="$RELEASE_TAG" \
+            -f simple_release=false
