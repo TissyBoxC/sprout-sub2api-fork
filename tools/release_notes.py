@@ -97,13 +97,14 @@ def run_git(*arguments: str) -> str:
 
 
 def resolve_previous_tag(current_ref: str, current_tag: str) -> str | None:
-    for tag in run_git(
+    tags = run_git(
         "tag",
         "--merged",
         current_ref,
         "--sort=-v:refname",
         "--format=%(refname:short)",
-    ).splitlines():
+    ).splitlines()
+    for tag in tags:
         if RELEASE_TAG.fullmatch(tag) and tag != current_tag:
             return tag
     return None
@@ -240,13 +241,16 @@ def main() -> int:
     parser.add_argument("--version", required=True)
     parser.add_argument("--current-ref", default="HEAD")
     parser.add_argument("--current-tag", required=True)
+    parser.add_argument("--previous-tag")
     parser.add_argument("--repository", default=os.environ.get("GITHUB_REPOSITORY", ""))
     parser.add_argument("--output", default="release-notes.md")
     arguments = parser.parse_args()
 
     if not re.fullmatch(r"\d+\.\d+\.\d+", arguments.version):
         raise SystemExit(f"invalid release version: {arguments.version}")
-    previous_tag = resolve_previous_tag(arguments.current_ref, arguments.current_tag)
+    previous_tag = arguments.previous_tag
+    if previous_tag is None:
+        previous_tag = resolve_previous_tag(arguments.current_ref, arguments.current_tag)
     notes = render_release_notes(
         arguments.version,
         arguments.repository,

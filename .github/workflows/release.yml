@@ -259,12 +259,19 @@ jobs:
       - name: Generate Chinese release notes
         id: release_notes
         run: |
-          python "$RUNNER_TEMP/release-tools/release_notes.py" \
-            --version "$RELEASE_VERSION" \
-            --current-ref "$RELEASE_SHA" \
-            --current-tag "$RELEASE_TAG" \
-            --repository "$GITHUB_REPOSITORY" \
+          notes_args=(
+            --version "$RELEASE_VERSION"
+            --current-ref "$RELEASE_SHA"
+            --current-tag "$RELEASE_TAG"
+            --repository "$GITHUB_REPOSITORY"
             --output "$RUNNER_TEMP/release-notes.md"
+          )
+          previous_tag=$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' \
+            "$RELEASE_SHA^" 2>/dev/null || true)
+          if [[ -n "$previous_tag" ]]; then
+            notes_args+=(--previous-tag "$previous_tag")
+          fi
+          python "$RUNNER_TEMP/release-tools/release_notes.py" "${notes_args[@]}"
           DELIMITER="RELEASE_NOTES_$(openssl rand -hex 16)"
           {
             echo "message<<$DELIMITER"
@@ -289,6 +296,14 @@ jobs:
           GITHUB_REPO_NAME: ${{ github.event.repository.name }}
           GITHUB_REPO_OWNER_LOWER: ${{ needs.prepare.outputs.owner_lower }}
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME || 'skip' }}
+      - name: Replace release description with verified Chinese notes
+        if: ${{ env.DRY_RUN != 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release edit "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --notes-file "$RUNNER_TEMP/release-notes.md"
       - name: Upload dry-run checksums and metadata
         if: ${{ env.DRY_RUN == 'true' }}
         uses: actions/upload-artifact@v7
