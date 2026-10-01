@@ -96,20 +96,6 @@ def run_git(*arguments: str) -> str:
     return result.stdout.strip()
 
 
-def resolve_previous_tag(current_ref: str, current_tag: str) -> str | None:
-    tags = run_git(
-        "tag",
-        "--merged",
-        current_ref,
-        "--sort=-v:refname",
-        "--format=%(refname:short)",
-    ).splitlines()
-    for tag in tags:
-        if RELEASE_TAG.fullmatch(tag) and tag != current_tag:
-            return tag
-    return None
-
-
 def read_commits(previous_tag: str | None, current_ref: str) -> list[dict[str, str]]:
     revision_range = f"{previous_tag}..{current_ref}" if previous_tag else current_ref
     output = run_git(
@@ -242,15 +228,18 @@ def main() -> int:
     parser.add_argument("--current-ref", default="HEAD")
     parser.add_argument("--current-tag", required=True)
     parser.add_argument("--previous-tag")
+    parser.add_argument("--first-release", action="store_true")
     parser.add_argument("--repository", default=os.environ.get("GITHUB_REPOSITORY", ""))
     parser.add_argument("--output", default="release-notes.md")
     arguments = parser.parse_args()
 
     if not re.fullmatch(r"\d+\.\d+\.\d+", arguments.version):
         raise SystemExit(f"invalid release version: {arguments.version}")
+    if arguments.previous_tag and arguments.first_release:
+        raise SystemExit("--previous-tag and --first-release are mutually exclusive")
+    if not arguments.previous_tag and not arguments.first_release:
+        raise SystemExit("one of --previous-tag or --first-release is required")
     previous_tag = arguments.previous_tag
-    if previous_tag is None:
-        previous_tag = resolve_previous_tag(arguments.current_ref, arguments.current_tag)
     notes = render_release_notes(
         arguments.version,
         arguments.repository,

@@ -270,6 +270,13 @@ jobs:
             "$RELEASE_SHA^" 2>/dev/null || true)
           if [[ -n "$previous_tag" ]]; then
             notes_args+=(--previous-tag "$previous_tag")
+          else
+            first_tag=$(git tag --merged "$RELEASE_SHA" --sort=v:refname --format='%(refname:short)' | head -n 1)
+            if [[ "$first_tag" != "$RELEASE_TAG" ]]; then
+              echo "Cannot determine the previous release tag for $RELEASE_TAG" >&2
+              exit 1
+            fi
+            notes_args+=(--first-release)
           fi
           python "$RUNNER_TEMP/release-tools/release_notes.py" "${notes_args[@]}"
           DELIMITER="RELEASE_NOTES_$(openssl rand -hex 16)"
