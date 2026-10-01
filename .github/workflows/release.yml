@@ -278,12 +278,24 @@ jobs:
             cat "$RUNNER_TEMP/release-notes.md"
             echo "$DELIMITER"
           } >> "$GITHUB_OUTPUT"
+      - name: Check whether release assets already exist
+        id: release_state
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "assets_exist=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "assets_exist=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Prepare publication-only GoReleaser config
+        if: ${{ steps.release_state.outputs.assets_exist != 'true' }}
         run: |
           args=(publish --output "$RUNNER_TEMP/goreleaser.publisher.yaml")
           if [[ "$SIMPLE_RELEASE" == true ]]; then args+=(--simple); fi
           python "$RUNNER_TEMP/release-tools/release_matrix.py" config "${args[@]}"
       - name: Publish existing archives and release notes
+        if: ${{ steps.release_state.outputs.assets_exist != 'true' }}
         uses: goreleaser/goreleaser-action@v7
         with:
           version: '~> v2'
@@ -297,7 +309,7 @@ jobs:
           GITHUB_REPO_OWNER_LOWER: ${{ needs.prepare.outputs.owner_lower }}
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME || 'skip' }}
       - name: Replace release description with verified Chinese notes
-        if: ${{ env.DRY_RUN != 'true' }}
+        if: ${{ steps.release_state.outputs.assets_exist == 'true' || env.DRY_RUN != 'true' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
