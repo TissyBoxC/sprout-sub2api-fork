@@ -17,7 +17,11 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  FORK_BASELINE: v0.2.11
+  # Upstream tags are not mirrored into the fork; use a pinned commit for the
+  # comparison range while keeping the release-facing label readable.
+  FORK_BASELINE: refs/sprout-baselines/v0.2.11
+  FORK_BASELINE_COMMIT: 96f4c115c9749078f90cbf210a01d39baf3f53b6
+  FORK_BASELINE_LABEL: v0.2.11
 
 jobs:
   release:
@@ -30,6 +34,11 @@ jobs:
 
       - name: Fetch release tags
         run: git fetch --tags --force origin
+
+      - name: Resolve fork baseline
+        run: |
+          git fetch --no-tags origin "$FORK_BASELINE_COMMIT"
+          git update-ref "$FORK_BASELINE" "$FORK_BASELINE_COMMIT"
 
       - name: Create annotated release tag
         id: create_tag
@@ -72,7 +81,7 @@ jobs:
           if [[ -n "$previous_tag" ]]; then
             notes_args+=(--previous-tag "$previous_tag")
           else
-            notes_args+=(--fork-baseline "$FORK_BASELINE")
+            notes_args+=(--fork-baseline "$FORK_BASELINE" --fork-baseline-label "$FORK_BASELINE_LABEL")
           fi
           python tools/release_notes.py "${notes_args[@]}"
           cat release-notes.md

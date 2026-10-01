@@ -198,13 +198,15 @@ def render_release_notes(
     repository: str,
     previous_tag: str | None,
     fork_baseline: str | None,
+    fork_baseline_label: str | None,
     commits: list[dict[str, str]],
 ) -> str:
     tag = f"v{version}"
     if previous_tag:
         comparison = f"`{previous_tag}` 至 `{tag}`"
     elif fork_baseline:
-        comparison = f"上游基线 `{fork_baseline}` 之后的芽系列改动，并在 `{tag}` 首次发行"
+        display_baseline = fork_baseline_label or fork_baseline
+        comparison = f"上游基线 `{display_baseline}` 之后的芽系列改动，并在 `{tag}` 首次发行"
     else:
         comparison = f"首个发行版本 `{tag}`"
     lines = [
@@ -254,6 +256,7 @@ def main() -> int:
     parser.add_argument("--current-tag", required=True)
     parser.add_argument("--previous-tag")
     parser.add_argument("--fork-baseline")
+    parser.add_argument("--fork-baseline-label")
     parser.add_argument("--repository", default=os.environ.get("GITHUB_REPOSITORY", ""))
     parser.add_argument("--output", default="release-notes.md")
     arguments = parser.parse_args()
@@ -274,6 +277,7 @@ def main() -> int:
         arguments.repository,
         previous_tag,
         arguments.fork_baseline,
+        arguments.fork_baseline_label,
         read_commits(previous_tag, arguments.fork_baseline, arguments.current_ref),
     )
     Path(arguments.output).write_text(notes, encoding="utf-8")
