@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Generate Chinese release notes for the sprout Sub2API fork."""
+"""Generate Chinese release notes for the sprout Sub2API fork.
+
+The fork keeps upstream history, so release notes must not treat every upstream
+commit as a product change. The workflow passes an explicit fork baseline and,
+when available, the previous release tag.
+"""
 
 from __future__ import annotations
 
@@ -69,10 +74,19 @@ DESCRIPTION_TITLES = {
 }
 
 DESCRIPTION_PHRASES = {
+    "automate chinese version releases": "自动化中文版本发布",
+    "bounded chinese release notes": "限制中文发行说明的长度",
+    "identify sprout sub2api fork": "标明芽系列 fork 品牌信息",
     "internal api config guard": "新增内部接口配置校验",
     "internal api contract": "新增内部接口契约",
+    "make asset publishing idempotent": "使发行附件发布可重复执行",
+    "polish japanese fork notice": "完善日文 fork 说明",
     "request label middleware": "新增请求标签中间件",
+    "require explicit previous release range": "强制指定上一发行版本范围",
+    "restrict tracked documentation": "仅跟踪代码与 README",
+    "select previous release tag explicitly": "明确选择上一发行标签",
     "secured internal runtime api": "开放受保护的内部运行时接口",
+    "update axios to patched release": "更新 Axios 到安全修复版本",
 }
 
 CONVENTIONAL_COMMIT = re.compile(
@@ -96,8 +110,17 @@ def run_git(*arguments: str) -> str:
     return result.stdout.strip()
 
 
-def read_commits(previous_tag: str | None, current_ref: str) -> list[dict[str, str]]:
-    revision_range = f"{previous_tag}..{current_ref}" if previous_tag else current_ref
+def read_commits(
+    previous_tag: str | None,
+    fork_baseline: str | None,
+    current_ref: str,
+) -> list[dict[str, str]]:
+    if previous_tag:
+        revision_range = f"{previous_tag}..{current_ref}"
+    elif fork_baseline:
+        revision_range = f"{fork_baseline}..{current_ref}"
+    else:
+        revision_range = current_ref
     output = run_git(
         "log",
         "--no-merges",
@@ -174,14 +197,16 @@ def render_release_notes(
     version: str,
     repository: str,
     previous_tag: str | None,
+    fork_baseline: str | None,
     commits: list[dict[str, str]],
 ) -> str:
     tag = f"v{version}"
-    comparison = (
-        f"`{previous_tag}` 至 `{tag}`"
-        if previous_tag
-        else f"首个发行版本 `{tag}`"
-    )
+    if previous_tag:
+        comparison = f"`{previous_tag}` 至 `{tag}`"
+    elif fork_baseline:
+        comparison = f"上游基线 `{fork_baseline}` 之后的芽系列改动，并在 `{tag}` 首次发行"
+    else:
+        comparison = f"首个发行版本 `{tag}`"
     lines = [
         f"# 初芽 AI 网关 {tag}",
         "",
@@ -228,23 +253,28 @@ def main() -> int:
     parser.add_argument("--current-ref", default="HEAD")
     parser.add_argument("--current-tag", required=True)
     parser.add_argument("--previous-tag")
-    parser.add_argument("--first-release", action="store_true")
+    parser.add_argument("--fork-baseline")
     parser.add_argument("--repository", default=os.environ.get("GITHUB_REPOSITORY", ""))
     parser.add_argument("--output", default="release-notes.md")
     arguments = parser.parse_args()
 
     if not re.fullmatch(r"\d+\.\d+\.\d+", arguments.version):
         raise SystemExit(f"invalid release version: {arguments.version}")
-    if arguments.previous_tag and arguments.first_release:
-        raise SystemExit("--previous-tag and --first-release are mutually exclusive")
-    if not arguments.previous_tag and not arguments.first_release:
-        raise SystemExit("one of --previous-tag or --first-release is required")
+    scope_arguments = (
+        bool(arguments.previous_tag),
+        bool(arguments.fork_baseline),
+    )
+    if sum(scope_arguments) != 1:
+        raise SystemExit(
+            "exactly one of --previous-tag or --fork-baseline is required"
+        )
     previous_tag = arguments.previous_tag
     notes = render_release_notes(
         arguments.version,
         arguments.repository,
         previous_tag,
-        read_commits(previous_tag, arguments.current_ref),
+        arguments.fork_baseline,
+        read_commits(previous_tag, arguments.fork_baseline, arguments.current_ref),
     )
     Path(arguments.output).write_text(notes, encoding="utf-8")
     return 0

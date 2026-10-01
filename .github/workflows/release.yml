@@ -31,6 +31,7 @@ permissions:
 env:
   SIMPLE_RELEASE: ${{ inputs.simple_release == true || vars.SIMPLE_RELEASE == 'true' }}
   DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == true }}
+  FORK_BASELINE: v0.2.11
 
 jobs:
   prepare:
@@ -91,7 +92,7 @@ jobs:
           ref: ${{ needs.prepare.outputs.sha }}
       - uses: pnpm/action-setup@v6
         with:
-          version: 9
+          version: 9.15.9
       - uses: actions/setup-node@v6
         with:
           node-version: '20'
@@ -258,6 +259,8 @@ jobs:
         run: git fetch --tags --force origin
       - name: Generate Chinese release notes
         id: release_notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           notes_args=(
             --version "$RELEASE_VERSION"
@@ -266,17 +269,22 @@ jobs:
             --repository "$GITHUB_REPOSITORY"
             --output "$RUNNER_TEMP/release-notes.md"
           )
-          previous_tag=$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' \
-            "$RELEASE_SHA^" 2>/dev/null || true)
+          previous_tag="$(
+            gh release list \
+              --repo "$GITHUB_REPOSITORY" \
+              --exclude-drafts \
+              --limit 100 \
+              --json tagName \
+              --jq '.[].tagName' \
+              | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+              | grep -vx "$RELEASE_TAG" \
+              | sort -V \
+              | tail -n 1 || true
+          )"
           if [[ -n "$previous_tag" ]]; then
             notes_args+=(--previous-tag "$previous_tag")
           else
-            first_tag=$(git tag --merged "$RELEASE_SHA" --sort=v:refname --format='%(refname:short)' | head -n 1)
-            if [[ "$first_tag" != "$RELEASE_TAG" ]]; then
-              echo "Cannot determine the previous release tag for $RELEASE_TAG" >&2
-              exit 1
-            fi
-            notes_args+=(--first-release)
+            notes_args+=(--fork-baseline "$FORK_BASELINE")
           fi
           python "$RUNNER_TEMP/release-tools/release_notes.py" "${notes_args[@]}"
           DELIMITER="RELEASE_NOTES_$(openssl rand -hex 16)"
