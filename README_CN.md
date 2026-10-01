@@ -1,8 +1,10 @@
 <div align="center">
 
-<img src="assets/logo.svg" alt="Sub2API Logo" width="128" />
+<img src="assets/brand/sprout/brand_banner.png" alt="如此萌屋" width="640" />
 
-# Sub2API
+# 如此萌屋 · 芽系列 · 初芽 AI 网关
+
+**基于 Sub2API 的 `sprout-sub2api-fork`**
 
 [![Go](https://img.shields.io/badge/Go-1.27.0-00ADD8.svg)](https://golang.org/)
 [![Vue](https://img.shields.io/badge/Vue-3.4+-4FC08D.svg)](https://vuejs.org/)
@@ -12,7 +14,8 @@
 
 <a href="https://trendshift.io/repositories/21823" target="_blank"><img src="https://trendshift.io/api/badge/repositories/21823" alt="Wei-Shaw%2Fsub2api | Trendshift" width="250" height="55"/></a>
 
-**AI API 网关平台 - 订阅配额分发管理**
+面向儿童设备的 AI 模型网关，负责路由、配额、审计和儿童内容安全策略。
+上游 Sub2API 的版权、许可证和赞助信息保持不变。
 
 [English](README.md) | 中文 | [日本語](README_JA.md)
 

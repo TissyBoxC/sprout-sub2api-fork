@@ -1,8 +1,10 @@
 <div align="center">
 
-<img src="assets/logo.svg" alt="Sub2API Logo" width="128" />
+<img src="assets/brand/sprout/brand_banner.png" alt="如此萌屋" width="640" />
 
-# Sub2API
+# 如此萌屋 · 芽系列 · 初芽 AI ゲートウェイ
+
+**Sub2API ベースの `sprout-sub2api-fork`**
 
 [![Go](https://img.shields.io/badge/Go-1.27.0-00ADD8.svg)](https://golang.org/)
 [![Vue](https://img.shields.io/badge/Vue-3.4+-4FC08D.svg)](https://vuejs.org/)
@@ -12,7 +14,9 @@
 
 <a href="https://trendshift.io/repositories/21823" target="_blank"><img src="https://trendshift.io/api/badge/repositories/21823" alt="Wei-Shaw%2Fsub2api | Trendshift" width="250" height="55"/></a>
 
-**サブスクリプションクォータ配分のための AI API ゲートウェイプラットフォーム**
+子ども向けデバイスの AI モデルゲートウェイとして、ルーティング、クォータ、
+監査、児童向けコンテンツ安全ポリシーを提供します。
+上流 Sub2API の帰属、ライセンス、スポンサー情報は変更しません。
 
 [English](README.md) | [中文](README_CN.md) | 日本語
 
