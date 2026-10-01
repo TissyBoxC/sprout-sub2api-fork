@@ -82,6 +82,7 @@ CONVENTIONAL_COMMIT = re.compile(
     r"(?P<description>.+)$"
 )
 RELEASE_TAG = re.compile(r"^v(?P<version>\d+\.\d+\.\d+)$")
+MAX_COMMITS_PER_SECTION = 50
 
 
 def run_git(*arguments: str) -> str:
@@ -225,7 +226,12 @@ def render_release_notes(
         selected = [commit for commit in commits if commit["type"] == section]
         if selected:
             lines.extend(["", f"## {SECTION_TITLES[section]}", ""])
-            lines.extend(render_commit_lines(selected, repository))
+            lines.extend(render_commit_lines(selected[:MAX_COMMITS_PER_SECTION], repository))
+            if len(selected) > MAX_COMMITS_PER_SECTION:
+                lines.append(
+                    f"- 本分类还有 {len(selected) - MAX_COMMITS_PER_SECTION} 项改动，"
+                    "完整记录请查看提交历史。"
+                )
     return "\n".join(lines).rstrip() + "\n"
 
 

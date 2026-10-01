@@ -25,6 +25,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Fetch release tags
+        run: git fetch --tags --force origin
+
       - name: Create annotated release tag
         id: create_tag
         shell: bash

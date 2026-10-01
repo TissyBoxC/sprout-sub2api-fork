@@ -51,6 +51,8 @@ jobs:
           ref: ${{ github.sha }}
       - name: Preserve tooling for releases of older tags
         run: cp -R .github/release-tools "$RUNNER_TEMP/release-tools"
+      - name: Preserve release note generator
+        run: cp tools/release_notes.py "$RUNNER_TEMP/release-tools/release_notes.py"
       - name: Checkout selected application source
         uses: actions/checkout@v6
         with:
@@ -252,14 +254,21 @@ jobs:
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME || 'skip' }}
         run: bash "$RUNNER_TEMP/release-tools/release-images.sh"
-      - name: Get annotated tag notes
-        id: tag_message
+      - name: Fetch release tags
+        run: git fetch --tags --force origin
+      - name: Generate Chinese release notes
+        id: release_notes
         run: |
-          TAG_MESSAGE=$(git tag -l --format='%(contents:body)' "$RELEASE_TAG")
-          DELIMITER="TAG_MESSAGE_$(openssl rand -hex 16)"
+          python "$RUNNER_TEMP/release-tools/release_notes.py" \
+            --version "$RELEASE_VERSION" \
+            --current-ref "$RELEASE_SHA" \
+            --current-tag "$RELEASE_TAG" \
+            --repository "$GITHUB_REPOSITORY" \
+            --output "$RUNNER_TEMP/release-notes.md"
+          DELIMITER="RELEASE_NOTES_$(openssl rand -hex 16)"
           {
             echo "message<<$DELIMITER"
-            echo "$TAG_MESSAGE"
+            cat "$RUNNER_TEMP/release-notes.md"
             echo "$DELIMITER"
           } >> "$GITHUB_OUTPUT"
       - name: Prepare publication-only GoReleaser config
@@ -275,7 +284,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GORELEASER_CURRENT_TAG: ${{ needs.prepare.outputs.tag }}
-          TAG_MESSAGE: ${{ steps.tag_message.outputs.message }}
+          TAG_MESSAGE: ${{ steps.release_notes.outputs.message }}
           GITHUB_REPO_OWNER: ${{ github.repository_owner }}
           GITHUB_REPO_NAME: ${{ github.event.repository.name }}
           GITHUB_REPO_OWNER_LOWER: ${{ needs.prepare.outputs.owner_lower }}
@@ -309,7 +318,7 @@ jobs:
       - name: Send Telegram Notification
         if: ${{ env.DRY_RUN != 'true' && env.SIMPLE_RELEASE != 'true' }}
         env:
-          TAG_MESSAGE: ${{ steps.tag_message.outputs.message }}
+          TAG_MESSAGE: ${{ steps.release_notes.outputs.message }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
