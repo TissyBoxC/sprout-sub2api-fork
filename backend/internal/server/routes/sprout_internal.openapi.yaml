@@ -32,6 +32,151 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SproutErrorEnvelope"
+  /internal/sprout/v1/ai-accounts:
+    post:
+      tags:
+        - internal
+      operationId: createSproutAIAccount
+      summary: Create an AI execution account for a platform parent
+      security:
+        - serviceToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SproutAIAccountCreateRequest"
+      responses:
+        "200":
+          description: Created provider account
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SproutAIAccountEnvelope"
+        "401":
+          $ref: "#/components/responses/InternalAuthenticationFailure"
+        "422":
+          description: Invalid account parameters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SproutErrorEnvelope"
+  /internal/sprout/v1/ai-accounts/{provider_account_id}:
+    get:
+      tags:
+        - internal
+      operationId: getSproutAIAccount
+      summary: Read one AI execution account
+      security:
+        - serviceToken: []
+      parameters:
+        - $ref: "#/components/parameters/ProviderAccountID"
+      responses:
+        "200":
+          description: Provider account
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SproutAIAccountEnvelope"
+        "404":
+          description: Account not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SproutErrorEnvelope"
+    put:
+      tags:
+        - internal
+      operationId: updateSproutAIAccount
+      summary: Update provider status, balance, concurrency, and models
+      security:
+        - serviceToken: []
+      parameters:
+        - $ref: "#/components/parameters/ProviderAccountID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SproutAIAccountUpdateRequest"
+      responses:
+        "200":
+          description: Updated provider account
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SproutAIAccountEnvelope"
+        "404":
+          description: Account not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SproutErrorEnvelope"
+  /internal/sprout/v1/ai-accounts/{provider_account_id}/api-keys:
+    post:
+      tags:
+        - internal
+      operationId: createSproutAIAccountAPIKey
+      summary: Create one provider API key
+      security:
+        - serviceToken: []
+      parameters:
+        - $ref: "#/components/parameters/ProviderAccountID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SproutAPIKeyCreateRequest"
+      responses:
+        "200":
+          description: Created API key; api_key is returned once
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SproutAPIKeyEnvelope"
+  /internal/sprout/v1/ai-accounts/{provider_account_id}/api-keys/{api_key_id}/rotate:
+    post:
+      tags:
+        - internal
+      operationId: rotateSproutAIAccountAPIKey
+      summary: Rotate one provider API key without a credential gap
+      security:
+        - serviceToken: []
+      parameters:
+        - $ref: "#/components/parameters/ProviderAccountID"
+        - $ref: "#/components/parameters/APIKeyID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SproutAPIKeyCreateRequest"
+      responses:
+        "200":
+          description: Replacement API key; api_key is returned once
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SproutAPIKeyEnvelope"
+  /internal/sprout/v1/ai-accounts/{provider_account_id}/api-keys/{api_key_id}:
+    delete:
+      tags:
+        - internal
+      operationId: deleteSproutAIAccountAPIKey
+      summary: Delete one provider API key
+      security:
+        - serviceToken: []
+      parameters:
+        - $ref: "#/components/parameters/ProviderAccountID"
+        - $ref: "#/components/parameters/APIKeyID"
+      responses:
+        "200":
+          description: Key deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SproutDeletedEnvelope"
 components:
   securitySchemes:
     serviceToken:
@@ -39,7 +184,217 @@ components:
       scheme: bearer
       bearerFormat: service-token
       description: Service token configured through sprout.internal_api.token
+  parameters:
+    ProviderAccountID:
+      name: provider_account_id
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: "^parent_[a-f0-9]{32}$"
+    APIKeyID:
+      name: api_key_id
+      in: path
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+  responses:
+    InternalAuthenticationFailure:
+      description: Missing or invalid service token
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/SproutErrorEnvelope"
   schemas:
+    SproutAIAccountCreateRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - provider_account_id
+        - provider_account_email
+        - password
+        - concurrency_limit
+      properties:
+        provider_account_id:
+          type: string
+          pattern: "^parent_[a-f0-9]{32}$"
+        provider_account_email:
+          type: string
+          format: email
+        username:
+          type: string
+        password:
+          type: string
+          minLength: 16
+        balance_usd:
+          type: number
+          minimum: 0
+        concurrency_limit:
+          type: integer
+          minimum: 1
+        allowed_models:
+          type: array
+          items:
+            type: string
+    SproutAIAccountUpdateRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          enum:
+            - active
+            - suspended
+            - disabled
+        balance_usd:
+          type: number
+          minimum: 0
+        concurrency_limit:
+          type: integer
+          minimum: 1
+        allowed_models:
+          type: array
+          items:
+            type: string
+        reason:
+          type: string
+    SproutAPIKeyCreateRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+        quota_usd:
+          type: number
+          minimum: 0
+        expires_in_days:
+          type: integer
+          minimum: 1
+        rate_limit_5h:
+          type: number
+          minimum: 0
+        rate_limit_1d:
+          type: number
+          minimum: 0
+        rate_limit_7d:
+          type: number
+          minimum: 0
+    SproutAIAccount:
+      type: object
+      additionalProperties: true
+      required:
+        - provider_account_id
+        - user_id
+        - status
+        - balance_usd
+        - concurrency_limit
+      properties:
+        provider_account_id:
+          type: string
+        user_id:
+          type: integer
+        status:
+          type: string
+        balance_usd:
+          type: number
+        concurrency_limit:
+          type: integer
+        allowed_models:
+          type: array
+          items:
+            type: string
+    SproutAIAccountEnvelope:
+      type: object
+      additionalProperties: false
+      required:
+        - schema_version
+        - request_id
+        - data
+        - error
+      properties:
+        schema_version:
+          type: string
+          const: "1.0.0"
+        request_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        data:
+          $ref: "#/components/schemas/SproutAIAccount"
+        error:
+          type: "null"
+    SproutAPIKey:
+      type: object
+      additionalProperties: false
+      required:
+        - user_id
+        - api_key_id
+        - api_key
+      properties:
+        user_id:
+          type: integer
+        api_key_id:
+          type: integer
+        name:
+          type: string
+        api_key:
+          type: string
+          writeOnly: true
+        status:
+          type: string
+        quota_usd:
+          type: number
+        expires_at:
+          type: string
+          nullable: true
+    SproutAPIKeyEnvelope:
+      type: object
+      additionalProperties: false
+      required:
+        - schema_version
+        - request_id
+        - data
+        - error
+      properties:
+        schema_version:
+          type: string
+          const: "1.0.0"
+        request_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        data:
+          $ref: "#/components/schemas/SproutAPIKey"
+        error:
+          type: "null"
+    SproutDeletedEnvelope:
+      type: object
+      additionalProperties: false
+      required:
+        - schema_version
+        - request_id
+        - data
+        - error
+      properties:
+        schema_version:
+          type: string
+          const: "1.0.0"
+        request_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        data:
+          type: object
+          additionalProperties: false
+          required:
+            - deleted
+          properties:
+            deleted:
+              type: boolean
+              const: true
+        error:
+          type: "null"
     SproutRuntimeEnvelope:
       type: object
       additionalProperties: false
