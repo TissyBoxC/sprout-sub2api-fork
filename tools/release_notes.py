@@ -74,11 +74,15 @@ DESCRIPTION_TITLES = {
 }
 
 DESCRIPTION_PHRASES = {
+    "add ai account lifecycle api": "新增 AI 账号生命周期接口",
     "automate chinese version releases": "自动化中文版本发布",
     "bounded chinese release notes": "限制中文发行说明的长度",
     "bump version to 0.2.13": "将版本号更新到 0.2.13",
+    "enforce account model allowlists": "强制校验账号模型白名单",
     "generate bounded chinese release notes": "生成长度受限的中文发行说明",
     "generate fork-scoped chinese release notes": "生成仅覆盖芽系列改动的中文发行说明",
+    "apply 如此萌屋 fork branding": "应用如此萌屋分支品牌",
+    "make avatar background transparent": "将品牌头像背景改为透明",
     "identify sprout sub2api fork": "标明芽系列 fork 品牌信息",
     "internal api config guard": "新增内部接口配置校验",
     "internal api contract": "新增内部接口契约",
@@ -87,13 +91,16 @@ DESCRIPTION_PHRASES = {
     "make asset publishing idempotent": "使发行附件发布可重复执行",
     "polish japanese fork notice": "完善日文 fork 说明",
     "preserve concrete release note descriptions": "保留具体的发行说明内容",
+    "refresh brand presentation": "更新品牌展示",
     "request label middleware": "新增请求标签中间件",
     "require explicit previous release range": "强制指定上一发行版本范围",
     "restrict tracked documentation": "仅跟踪代码与 README",
     "resolve fork baseline without upstream tags": "在不依赖上游标签的情况下解析分支基线",
     "select previous release tag explicitly": "明确选择上一发行标签",
     "secured internal runtime api": "开放受保护的内部运行时接口",
+    "translate fallback summary descriptions": "完善发行说明回退描述",
     "update axios to patched release": "更新 Axios 到安全修复版本",
+    "将中文说明设为默认首页": "将中文说明设为默认首页",
 }
 
 CONVENTIONAL_COMMIT = re.compile(
