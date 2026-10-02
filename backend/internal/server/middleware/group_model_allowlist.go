@@ -13,7 +13,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// GroupModelAllowlist 是分组级模型白名单准入中间件。
+// GroupModelAllowlist 是模型白名单准入中间件，同时校验账户级
+// allowed_models 与分组级 model_allowlist。两层都开启时取交集。
 //
 // 挂载位置：每条网关链的 apiKeyAuth 之后、compositeTarget 之前——
 // 保证校验发生在合成路由改写与调度之前，且只看客户端书写的公开模型名。
@@ -32,11 +33,16 @@ import (
 func GroupModelAllowlist() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		apiKey, ok := GetAPIKeyFromContext(c)
-		if !ok || apiKey == nil || apiKey.Group == nil || !apiKey.Group.ModelAllowlistEnabled() {
+		if !ok || apiKey == nil {
 			c.Next()
 			return
 		}
-		allowlist := apiKey.Group.ModelAllowlist
+		accountAllowlist := service.AccountModelAllowlistFromUser(apiKey.User)
+		groupAllowlistEnabled := apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled()
+		if !accountAllowlist.Enabled && !groupAllowlistEnabled {
+			c.Next()
+			return
+		}
 		if c.Request == nil {
 			c.Next()
 			return
@@ -70,13 +76,7 @@ func GroupModelAllowlist() gin.HandlerFunc {
 			}
 		}
 
-		blocked := ""
-		for _, candidate := range models {
-			if !allowlist.Allows(candidate) {
-				blocked = candidate
-				break
-			}
-		}
+		blocked := blockedModelForAccountAndGroup(apiKey.User, apiKey.Group, models)
 		if blocked == "" {
 			c.Next()
 			return
@@ -87,6 +87,19 @@ func GroupModelAllowlist() gin.HandlerFunc {
 		groupModelAllowlistErrorWriter(c)(c, http.StatusNotFound, fmt.Sprintf("Model %q is not available for this group", blocked))
 		c.Abort()
 	}
+}
+
+func blockedModelForAccountAndGroup(user *service.User, group *service.Group, models []string) string {
+	accountAllowlist := service.AccountModelAllowlistFromUser(user)
+	for _, model := range models {
+		if !accountAllowlist.Allows(model) {
+			return model
+		}
+		if group != nil && group.ModelAllowlistEnabled() && !group.ModelAllowlist.Allows(model) {
+			return model
+		}
+	}
+	return ""
 }
 
 // isResponsesWebSocketRoute 判断当前请求是否命中 OpenAI Responses WebSocket

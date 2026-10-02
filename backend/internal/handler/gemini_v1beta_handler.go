@@ -48,12 +48,13 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 
 	// 分组级模型白名单开启时过滤 models[].name（名字形如 models/xxx）。
 	filterGeminiModels := func(models []gemini.Model) []gemini.Model {
-		if apiKey.Group == nil || !apiKey.Group.ModelAllowlistEnabled() {
+		if !service.AccountModelAllowlistFromUser(apiKey.User).Enabled &&
+			(apiKey.Group == nil || !apiKey.Group.ModelAllowlistEnabled()) {
 			return models
 		}
 		filtered := make([]gemini.Model, 0, len(models))
 		for _, model := range models {
-			if apiKey.Group.ModelAllowlist.Allows(model.Name) {
+			if service.AllowsModelForAccountAndGroup(apiKey.User, apiKey.Group, model.Name) {
 				filtered = append(filtered, model)
 			}
 		}
@@ -100,8 +101,9 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		}
 	}
 
-	if apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled() {
-		if filtered, dropped, ok := filterUpstreamGeminiModelsBody(res.Body, apiKey.Group.ModelAllowlist); ok && dropped {
+	if accountAllowlist := service.AccountModelAllowlistFromUser(apiKey.User); accountAllowlist.Enabled ||
+		(apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled()) {
+		if filtered, dropped, ok := filterUpstreamGeminiModelsBodyForAccountAndGroup(res.Body, apiKey.User, apiKey.Group); ok && dropped {
 			// 只在确有条目被过滤时替换响应体；全命中或解析失败时保持原始响应，
 			// 统一经 writeUpstreamResponse 写出（保留全部上游响应头）。
 			res.Body = filtered
@@ -213,6 +215,48 @@ func filterUpstreamGeminiModelsBody(body []byte, allowlist service.GroupModelAll
 		return nil, false, false
 	}
 	return merged, true, true
+}
+
+// filterUpstreamGeminiModelsBodyForAccountAndGroup 对 Gemini 原生模型列表同时
+// 应用账户级与分组级白名单。
+func filterUpstreamGeminiModelsBodyForAccountAndGroup(
+	body []byte,
+	user *service.User,
+	group *service.Group,
+) (filtered []byte, dropped bool, ok bool) {
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return body, false, false
+	}
+	var rawModels []json.RawMessage
+	if err := json.Unmarshal(envelope["models"], &rawModels); err != nil {
+		return body, false, false
+	}
+	kept := make([]json.RawMessage, 0, len(rawModels))
+	for _, rawModel := range rawModels {
+		var item struct {
+			Name string `json:"name"`
+		}
+		if err := json.Unmarshal(rawModel, &item); err != nil {
+			kept = append(kept, rawModel)
+			continue
+		}
+		if service.AllowsModelForAccountAndGroup(user, group, item.Name) {
+			kept = append(kept, rawModel)
+		} else {
+			dropped = true
+		}
+	}
+	encodedModels, err := json.Marshal(kept)
+	if err != nil {
+		return body, false, false
+	}
+	envelope["models"] = encodedModels
+	filtered, err = json.Marshal(envelope)
+	if err != nil {
+		return body, false, false
+	}
+	return filtered, dropped, true
 }
 
 // GeminiV1BetaGetModel proxies:

@@ -24,6 +24,7 @@ func TestAdminService_CreateUser_Success(t *testing.T) {
 		Balance:       &balance,
 		Concurrency:   7,
 		AllowedGroups: []int64{3, 5},
+		AllowedModels: []string{"gpt-5.4", "claude-sonnet-4.5"},
 	}
 
 	user, err := svc.CreateUser(context.Background(), input)
@@ -36,6 +37,7 @@ func TestAdminService_CreateUser_Success(t *testing.T) {
 	require.Equal(t, balance, user.Balance)
 	require.Equal(t, input.Concurrency, user.Concurrency)
 	require.Equal(t, input.AllowedGroups, user.AllowedGroups)
+	require.Equal(t, input.AllowedModels, user.AllowedModels)
 	require.Equal(t, RoleUser, user.Role)
 	require.Equal(t, StatusActive, user.Status)
 	require.True(t, user.CheckPassword(input.Password))

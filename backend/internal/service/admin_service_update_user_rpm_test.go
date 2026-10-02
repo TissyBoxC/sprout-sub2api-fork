@@ -67,3 +67,52 @@ func TestAdminService_UpdateUser_NoInvalidateWhenRPMLimitUnchanged(t *testing.T)
 	require.NoError(t, err)
 	require.Empty(t, invalidator.userIDs, "只改 username 不应触发认证缓存失效")
 }
+
+func TestAdminService_UpdateUser_InvalidatesAuthCacheOnAllowedModelsChange(t *testing.T) {
+	base := &userRepoStub{user: &User{
+		ID:            42,
+		Email:         "u@example.com",
+		AllowedModels: []string{"gpt-5.4"},
+	}}
+	repo := &rpmUserRepoStub{userRepoStub: base}
+	invalidator := &authCacheInvalidatorStub{}
+	svc := &adminServiceImpl{
+		userRepo:             repo,
+		redeemCodeRepo:       &redeemRepoStub{},
+		authCacheInvalidator: invalidator,
+	}
+
+	nextModels := []string{"claude-sonnet-4.5"}
+	updated, err := svc.UpdateUser(context.Background(), 42, &UpdateUserInput{
+		AllowedModels: &nextModels,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, updated)
+	require.Equal(t, nextModels, updated.AllowedModels)
+	require.Equal(t, []int64{42}, invalidator.userIDs, "修改账户级模型白名单必须失效认证缓存")
+}
+
+func TestAdminService_UpdateUser_NoModelCacheInvalidationWhenUnchanged(t *testing.T) {
+	base := &userRepoStub{user: &User{
+		ID:            42,
+		Email:         "u@example.com",
+		AllowedModels: []string{"gpt-5.4"},
+		Username:      "old",
+	}}
+	repo := &rpmUserRepoStub{userRepoStub: base}
+	invalidator := &authCacheInvalidatorStub{}
+	svc := &adminServiceImpl{
+		userRepo:             repo,
+		redeemCodeRepo:       &redeemRepoStub{},
+		authCacheInvalidator: invalidator,
+	}
+
+	nextName := "new"
+	sameModels := []string{"gpt-5.4"}
+	_, err := svc.UpdateUser(context.Background(), 42, &UpdateUserInput{
+		Username:      &nextName,
+		AllowedModels: &sameModels,
+	})
+	require.NoError(t, err)
+	require.Empty(t, invalidator.userIDs, "模型白名单数值未变时不应重复失效认证缓存")
+}

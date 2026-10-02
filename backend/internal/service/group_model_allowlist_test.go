@@ -169,6 +169,73 @@ func TestGroupModelAllowlistEnabled(t *testing.T) {
 	}
 }
 
+func TestAccountModelAllowlistFromUser(t *testing.T) {
+	t.Run("empty list means unrestricted", func(t *testing.T) {
+		cfg := AccountModelAllowlistFromUser(&User{})
+		if cfg.Enabled || !cfg.Allows("any-model") {
+			t.Fatalf("empty account allowlist must not restrict models: %#v", cfg)
+		}
+	})
+
+	t.Run("trims and dedupes case-insensitively", func(t *testing.T) {
+		cfg := AccountModelAllowlistFromUser(&User{
+			AllowedModels: []string{" gpt-5.4 ", "GPT-5.4", "claude-sonnet-*"},
+		})
+		if !cfg.Enabled {
+			t.Fatal("non-empty account allowlist must be enabled")
+		}
+		want := []string{"gpt-5.4", "claude-sonnet-*"}
+		if strings.Join(cfg.Models, ",") != strings.Join(want, ",") {
+			t.Fatalf("got %#v want %#v", cfg.Models, want)
+		}
+	})
+
+	t.Run("explicit empty account list clears the restriction", func(t *testing.T) {
+		cfg := AccountModelAllowlistFromUser(&User{AllowedModels: []string{}})
+		if cfg.Enabled {
+			t.Fatal("explicit empty list must clear account-level restriction")
+		}
+	})
+}
+
+func TestAllowsModelForAccountAndGroup(t *testing.T) {
+	user := &User{AllowedModels: []string{"gpt-5.4", "claude-sonnet-*"}}
+	group := &Group{ModelAllowlist: GroupModelAllowlist{
+		Enabled: true,
+		Models:  []string{"claude-sonnet-4.5", "gemini-2.5-pro"},
+	}}
+
+	if !AllowsModelForAccountAndGroup(user, group, "claude-sonnet-4.5") {
+		t.Fatal("model allowed by both account and group must pass")
+	}
+	if AllowsModelForAccountAndGroup(user, group, "gpt-5.4") {
+		t.Fatal("model blocked by the group must be denied")
+	}
+	if AllowsModelForAccountAndGroup(user, group, "gemini-2.5-pro") {
+		t.Fatal("model blocked by the account must be denied")
+	}
+	if AllowsModelForAccountAndGroup(&User{}, nil, "anything") == false {
+		t.Fatal("unrestricted account with no group must allow all models")
+	}
+}
+
+func TestFilterModelsForAccountAndGroup(t *testing.T) {
+	user := &User{AllowedModels: []string{"gpt-5.4", "claude-sonnet-*", "gemini-2.5-*"}}
+	group := &Group{ModelAllowlist: GroupModelAllowlist{
+		Enabled: true,
+		Models:  []string{"claude-sonnet-4.5", "gemini-2.5-pro", "gpt-5.4"},
+	}}
+	got := FilterModelsForAccountAndGroup(
+		[]string{"gpt-5.4", "claude-sonnet-4.5", "gemini-2.5-pro", "grok-4.6"},
+		user,
+		group,
+	)
+	want := "claude-sonnet-4.5,gemini-2.5-pro,gpt-5.4"
+	if strings.Join(got, ",") != want {
+		t.Fatalf("got %#v want %s", got, want)
+	}
+}
+
 func TestGroupModelAllowlistFilterForListing(t *testing.T) {
 	source := []string{"claude-opus-4.6", "claude-sonnet-4.5", "gpt-5.4", "gpt-5.5-codex", "gpt-5.5-mini", "grok-4.6"}
 

@@ -2428,7 +2428,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	// 必须在合成路由解析和上游模型映射之前执行。
 	// 与 HTTP 准入一致：帧内重复 model 键/大小写变体可能被上游按末值绑定，
 	// 全部候选值逐一校验，任一未命中即拒绝。
-	if blocked := blockedModelAllowlistCandidate(apiKey.Group, requestmodel.FromBodyCandidates("", "application/json", firstMessage)); blocked != "" {
+	if blocked := blockedModelAllowlistCandidate(apiKey.User, apiKey.Group, requestmodel.FromBodyCandidates("", "application/json", firstMessage)); blocked != "" {
 		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalModelConfiguration)
 		middleware2.MarkIngressRejected(c, middleware2.IngressRejectModelNotAllowed)
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, fmt.Sprintf("Model %q is not available for this group", blocked))
@@ -2898,7 +2898,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				// 帧内重复 model 键/大小写变体/嵌套 session.model 额外逐一校验，
 				// 防止候选集非空时掩盖被轮换掉的禁用模型。
 				candidates := append([]string{model}, requestmodel.FromBodyCandidates("", "application/json", payload)...)
-				if blocked := blockedModelAllowlistCandidate(apiKey.Group, candidates); blocked != "" {
+				if blocked := blockedModelAllowlistCandidate(apiKey.User, apiKey.Group, candidates); blocked != "" {
 					service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalModelConfiguration)
 					middleware2.MarkIngressRejected(c, middleware2.IngressRejectModelNotAllowed)
 					return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, fmt.Sprintf("Model %q is not available for this group", blocked), nil)
@@ -3850,12 +3850,14 @@ func isOpenAIWSUpgradeRequest(r *http.Request) bool {
 // blockedModelAllowlistCandidate 对全部候选模型逐一校验分组白名单，返回第一个
 // 未命中的值（全部命中或白名单未开启返回空串）。WS 帧与 HTTP 请求体共用该
 // 规则：重复 model 键/大小写变体可能被上游按末值绑定，任一未命中即拒绝。
-func blockedModelAllowlistCandidate(group *service.Group, candidates []string) string {
-	if group == nil || !group.ModelAllowlistEnabled() {
+func blockedModelAllowlistCandidate(user *service.User, group *service.Group, candidates []string) string {
+	accountAllowlist := service.AccountModelAllowlistFromUser(user)
+	groupAllowlistEnabled := group != nil && group.ModelAllowlistEnabled()
+	if !accountAllowlist.Enabled && !groupAllowlistEnabled {
 		return ""
 	}
 	for _, candidate := range candidates {
-		if !group.ModelAllowlist.Allows(candidate) {
+		if !service.AllowsModelForAccountAndGroup(user, group, candidate) {
 			return candidate
 		}
 	}

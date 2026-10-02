@@ -36,6 +36,8 @@ type APIKeyAuthUserSnapshot struct {
 	Balance       float64 `json:"balance"`
 	Concurrency   int     `json:"concurrency"`
 	AllowedGroups []int64 `json:"allowed_groups,omitempty"`
+	// AllowedModels 是账户级模型白名单快照，空数组表示不额外限制。
+	AllowedModels []string `json:"allowed_models,omitempty"`
 
 	// Balance notification fields (required for CheckBalanceAfterDeduction)
 	Email                      string             `json:"email"`

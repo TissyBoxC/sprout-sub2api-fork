@@ -56,6 +56,15 @@ func allowlistAPIKey(enabled bool, models ...string) *service.APIKey {
 	}
 }
 
+func accountAllowlistAPIKey(models ...string) *service.APIKey {
+	return &service.APIKey{
+		User: &service.User{AllowedModels: models},
+		Group: &service.Group{
+			Platform: service.PlatformAnthropic,
+		},
+	}
+}
+
 func doJSON(t *testing.T, router *gin.Engine, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
@@ -95,6 +104,45 @@ func TestGroupModelAllowlistDisabledDoesNotReadBody(t *testing.T) {
 	}
 	if body.read {
 		t.Fatal("allowlist disabled: middleware must not read the request body")
+	}
+}
+
+func TestGroupModelAllowlistEnforcesAccountAllowlist(t *testing.T) {
+	router, calls := newGroupModelAllowlistTestRouter(accountAllowlistAPIKey("gpt-5.4"), "/v1")
+
+	allowed := doJSON(t, router, http.MethodPost, "/v1/messages", `{"model":"gpt-5.4"}`)
+	if allowed.Code != http.StatusOK {
+		t.Fatalf("expected account-allowed model to pass, got %d: %s", allowed.Code, allowed.Body.String())
+	}
+	denied := doJSON(t, router, http.MethodPost, "/v1/messages", `{"model":"claude-opus-4.6"}`)
+	if denied.Code != http.StatusNotFound {
+		t.Fatalf("expected account-blocked model to be rejected, got %d: %s", denied.Code, denied.Body.String())
+	}
+	if len(*calls) != 1 {
+		t.Fatalf("expected only the allowed request to reach the handler, got %v", *calls)
+	}
+}
+
+func TestGroupModelAllowlistEnforcesAccountAndGroupIntersection(t *testing.T) {
+	apiKey := accountAllowlistAPIKey("claude-sonnet-*", "gpt-5.4")
+	apiKey.Group.ModelAllowlist = service.GroupModelAllowlist{
+		Enabled: true,
+		Models:  []string{"claude-sonnet-4.5", "gemini-2.5-pro"},
+	}
+	router, calls := newGroupModelAllowlistTestRouter(apiKey, "/v1")
+
+	allowed := doJSON(t, router, http.MethodPost, "/v1/messages", `{"model":"claude-sonnet-4.5"}`)
+	if allowed.Code != http.StatusOK {
+		t.Fatalf("expected intersection model to pass, got %d: %s", allowed.Code, allowed.Body.String())
+	}
+	for _, model := range []string{"gpt-5.4", "gemini-2.5-pro"} {
+		denied := doJSON(t, router, http.MethodPost, "/v1/messages", `{"model":"`+model+`"}`)
+		if denied.Code != http.StatusNotFound {
+			t.Fatalf("expected %s to be rejected, got %d: %s", model, denied.Code, denied.Body.String())
+		}
+	}
+	if len(*calls) != 1 {
+		t.Fatalf("expected only the intersection request to reach the handler, got %v", *calls)
 	}
 }
 

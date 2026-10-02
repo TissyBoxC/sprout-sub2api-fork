@@ -169,6 +169,7 @@ type CreateUserInput struct {
 	Concurrency          int
 	RPMLimit             int
 	AllowedGroups        []int64
+	AllowedModels        []string
 	RestrictPublicGroups bool
 	// ActorAdminID 执行本次操作的管理员ID(来自JWT)，仅用于权限敏感操作的审计日志。
 	ActorAdminID int64
@@ -184,7 +185,8 @@ type UpdateUserInput struct {
 	Concurrency   *int     // 使用指针区分"未提供"和"设置为0"
 	RPMLimit      *int     // 使用指针区分"未提供"和"设置为0"
 	Status        string
-	AllowedGroups *[]int64 // 使用指针区分"未提供"和"设置为空数组"
+	AllowedGroups *[]int64  // 使用指针区分"未提供"和"设置为空数组"
+	AllowedModels *[]string // 使用指针区分"未提供"和"设置为空数组"
 	// RestrictPublicGroups 指针区分"未提供"和"显式开关"。
 	RestrictPublicGroups *bool
 	// GroupRates 用户专属分组倍率配置

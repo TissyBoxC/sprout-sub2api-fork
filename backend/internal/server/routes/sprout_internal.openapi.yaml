@@ -237,6 +237,10 @@ components:
           type: array
           items:
             type: string
+          description: |
+            Account-level model allowlist. An empty array keeps group
+            restrictions unchanged; a non-empty array is intersected with the
+            group allowlist and enforced by the gateway.
     SproutAIAccountUpdateRequest:
       type: object
       additionalProperties: false
@@ -257,6 +261,9 @@ components:
           type: array
           items:
             type: string
+          description: |
+            Replace the account-level model allowlist. Send an empty array to
+            remove the account-level restriction.
         reason:
           type: string
     SproutAPIKeyCreateRequest:

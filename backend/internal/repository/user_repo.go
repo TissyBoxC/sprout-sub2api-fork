@@ -153,6 +153,7 @@ func (r *userRepository) create(ctx context.Context, userIn *service.User, guard
 		SetNillableLastLoginAt(userIn.LastLoginAt).
 		SetNillableLastActiveAt(userIn.LastActiveAt).
 		SetRpmLimit(userIn.RPMLimit).
+		SetAllowedModels(userIn.AllowedModels).
 		SetRestrictPublicGroups(userIn.RestrictPublicGroups).
 		Save(txCtx)
 	if err != nil {
@@ -319,6 +320,9 @@ func (r *userRepository) Update(ctx context.Context, userIn *service.User, field
 	}
 	if fields.RestrictPublicGroups {
 		updateOp = updateOp.SetRestrictPublicGroups(userIn.RestrictPublicGroups)
+	}
+	if fields.AllowedModels {
+		updateOp = updateOp.SetAllowedModels(userIn.AllowedModels)
 	}
 	if fields.BalanceNotifySettings {
 		updateOp = updateOp.

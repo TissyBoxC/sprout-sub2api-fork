@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 24 // v24: group model_allowlist field (renamed from models_list_config, enforcing semantics)
+const apiKeyAuthSnapshotVersion = 25 // v25: account-level allowed_models in auth snapshot
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -357,6 +357,7 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 			Balance:                    apiKey.User.Balance,
 			Concurrency:                apiKey.User.Concurrency,
 			AllowedGroups:              apiKey.User.AllowedGroups,
+			AllowedModels:              apiKey.User.AllowedModels,
 			Email:                      apiKey.User.Email,
 			Username:                   apiKey.User.Username,
 			BalanceNotifyEnabled:       apiKey.User.BalanceNotifyEnabled,
@@ -466,6 +467,7 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 			Balance:                    snapshot.User.Balance,
 			Concurrency:                snapshot.User.Concurrency,
 			AllowedGroups:              snapshot.User.AllowedGroups,
+			AllowedModels:              snapshot.User.AllowedModels,
 			Email:                      snapshot.User.Email,
 			Username:                   snapshot.User.Username,
 			BalanceNotifyEnabled:       snapshot.User.BalanceNotifyEnabled,

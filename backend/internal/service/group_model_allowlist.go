@@ -28,6 +28,32 @@ func GroupModelAllowlistFromDomain(cfg domain.GroupModelAllowlist) GroupModelAll
 	return GroupModelAllowlist{Enabled: cfg.Enabled, Models: cfg.Models}
 }
 
+// AccountModelAllowlistFromUser 把账户级 allowed_models 转成与分组级相同的
+// 匹配语义。空列表表示未开启账户级限制。
+func AccountModelAllowlistFromUser(user *User) GroupModelAllowlist {
+	if user == nil {
+		return GroupModelAllowlist{}
+	}
+	models := make([]string, 0, len(user.AllowedModels))
+	seen := make(map[string]struct{}, len(user.AllowedModels))
+	for _, model := range user.AllowedModels {
+		model = strings.TrimSpace(model)
+		if model == "" {
+			continue
+		}
+		key := strings.ToLower(model)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		models = append(models, model)
+	}
+	if len(models) == 0 {
+		return GroupModelAllowlist{}
+	}
+	return GroupModelAllowlist{Enabled: true, Models: models}
+}
+
 // supplementUnmappedOpenAIModels ensures a partial mapping catalog does not
 // hide models from unmapped or passthrough OpenAI accounts (passthrough routing
 // ignores model_mapping, so it serves the same default set as an unmapped
@@ -112,6 +138,24 @@ func (a GroupModelAllowlist) Allows(model string) bool {
 		}
 	}
 	return false
+}
+
+// AllowsModelForAccountAndGroup 同时满足账户级和分组级白名单时才放行。
+func AllowsModelForAccountAndGroup(user *User, group *Group, model string) bool {
+	if !AccountModelAllowlistFromUser(user).Allows(model) {
+		return false
+	}
+	return group == nil || group.ModelAllowlist.Allows(model)
+}
+
+// FilterModelsForAccountAndGroup 先按账户级、再按分组级白名单过滤模型列表。
+// 任一层未开启时保持上一层结果不变。
+func FilterModelsForAccountAndGroup(source []string, user *User, group *Group) []string {
+	filtered := AccountModelAllowlistFromUser(user).FilterForListing(source)
+	if group != nil && group.ModelAllowlistEnabled() {
+		filtered = group.ModelAllowlist.FilterForListing(filtered)
+	}
+	return filtered
 }
 
 // groupAllowlistPatternMatches treats only * as a wildcard, including in the middle

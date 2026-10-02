@@ -1163,12 +1163,13 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 
 	if platform == service.PlatformComposite {
 		availableModels := h.compositeAvailableModels(c.Request.Context(), groupID)
-		if apiKey != nil && apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled() {
+		if apiKey != nil && (service.AccountModelAllowlistFromUser(apiKey.User).Enabled ||
+			(apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled())) {
 			source := availableModels
 			if len(source) == 0 {
 				source = defaultModelIDsForPlatform(service.PlatformComposite)
 			}
-			writeAllowlistedModelsList(c, service.PlatformComposite, apiKey.Group.ModelAllowlist.FilterForListing(source))
+			writeAllowlistedModelsList(c, service.PlatformComposite, service.FilterModelsForAccountAndGroup(source, apiKey.User, apiKey.Group))
 			return
 		}
 		if len(availableModels) > 0 {
@@ -1181,9 +1182,10 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 
 	// Get available models from account configurations for the selected group platform.
 	availableModels := h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, platform)
-	if apiKey != nil && apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled() {
+	if apiKey != nil && (service.AccountModelAllowlistFromUser(apiKey.User).Enabled ||
+		(apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled())) {
 		source := modelListingSource(platform, availableModels, defaultModelIDsForPlatform(platform))
-		writeAllowlistedModelsList(c, platform, apiKey.Group.ModelAllowlist.FilterForListing(source))
+		writeAllowlistedModelsList(c, platform, service.FilterModelsForAccountAndGroup(source, apiKey.User, apiKey.Group))
 		return
 	}
 
@@ -1226,6 +1228,7 @@ func (h *GatewayHandler) CodexModels(c *gin.Context) {
 	}
 	modelIDs := h.codexModelIDsForGroup(c.Request.Context(), apiKey.Group, forcedPlatform)
 	modelIDs = service.FilterCodexModelIDsForGroup(modelIDs, apiKey.Group)
+	modelIDs = service.FilterModelsForAccountAndGroup(modelIDs, apiKey.User, nil)
 	body, err := h.gatewayService.BuildCodexModelsManifestForGroup(
 		c.Request.Context(),
 		apiKey.Group,
@@ -1520,14 +1523,17 @@ func mergeModelIDs(primary, secondary []string) []string {
 // 分组级模型白名单开启时按白名单过滤。
 func (h *GatewayHandler) AntigravityModels(c *gin.Context) {
 	models := antigravity.DefaultModels()
-	if apiKey, ok := middleware2.GetAPIKeyFromContext(c); ok && apiKey != nil && apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled() {
+	if apiKey, ok := middleware2.GetAPIKeyFromContext(c); ok && apiKey != nil {
 		filtered := make([]antigravity.ClaudeModel, 0, len(models))
 		for _, model := range models {
-			if apiKey.Group.ModelAllowlist.Allows(model.ID) {
+			if service.AllowsModelForAccountAndGroup(apiKey.User, apiKey.Group, model.ID) {
 				filtered = append(filtered, model)
 			}
 		}
-		models = filtered
+		if service.AccountModelAllowlistFromUser(apiKey.User).Enabled ||
+			(apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled()) {
+			models = filtered
+		}
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"object": "list",

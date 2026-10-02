@@ -2259,6 +2259,10 @@ func init() {
 	userDescRpmLimit := userFields[21].Descriptor()
 	// user.DefaultRpmLimit holds the default value on creation for the rpm_limit field.
 	user.DefaultRpmLimit = userDescRpmLimit.Default.(int)
+	// userDescAllowedModels is the schema descriptor for allowed_models field.
+	userDescAllowedModels := userFields[22].Descriptor()
+	// user.DefaultAllowedModels holds the default value on creation for the allowed_models field.
+	user.DefaultAllowedModels = userDescAllowedModels.Default.([]string)
 	userallowedgroupFields := schema.UserAllowedGroup{}.Fields()
 	_ = userallowedgroupFields
 	// userallowedgroupDescCreatedAt is the schema descriptor for created_at field.

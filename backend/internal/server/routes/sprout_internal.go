@@ -100,6 +100,7 @@ func sproutRuntimeHandler(c *gin.Context) {
 			"request_labels",
 			"service_token_auth",
 			"ai_account_lifecycle",
+			"account_model_allowlist",
 			"api_key_lifecycle",
 		},
 	})
@@ -156,13 +157,14 @@ func sproutCreateAIAccountHandler(
 
 		balance := request.BalanceUSD
 		user, err := dependencies.AdminService.CreateUser(c.Request.Context(), &service.CreateUserInput{
-			Email:       request.ProviderAccountEmail,
-			Password:    request.Password,
-			Username:    sproutProviderUsername(request.Username, request.ProviderAccountID),
-			Notes:       "managed by sprout-device-platform:" + request.ProviderAccountID,
-			Balance:     &balance,
-			Concurrency: request.ConcurrencyLimit,
-			Role:        service.RoleUser,
+			Email:         request.ProviderAccountEmail,
+			Password:      request.Password,
+			Username:      sproutProviderUsername(request.Username, request.ProviderAccountID),
+			Notes:         "managed by sprout-device-platform:" + request.ProviderAccountID,
+			Balance:       &balance,
+			Concurrency:   request.ConcurrencyLimit,
+			AllowedModels: request.AllowedModels,
+			Role:          service.RoleUser,
 		})
 		if err != nil {
 			writeSproutServiceError(c, err, "创建 AI 账号失败", false)
@@ -220,9 +222,10 @@ func sproutUpdateAIAccountHandler(
 			c.Request.Context(),
 			user.ID,
 			&service.UpdateUserInput{
-				Status:      status,
-				Balance:     request.BalanceUSD,
-				Concurrency: request.ConcurrencyLimit,
+				Status:        status,
+				Balance:       request.BalanceUSD,
+				Concurrency:   request.ConcurrencyLimit,
+				AllowedModels: request.AllowedModels,
 			},
 		)
 		if err != nil {
@@ -398,6 +401,7 @@ func sproutAIAccountResponse(user *service.User) gin.H {
 		"status":              user.Status,
 		"balance_usd":         user.Balance,
 		"concurrency_limit":   user.Concurrency,
+		"allowed_models":      user.AllowedModels,
 		"allowed_groups":      user.AllowedGroups,
 	}
 }

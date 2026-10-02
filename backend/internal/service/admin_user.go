@@ -141,6 +141,7 @@ func (s *adminServiceImpl) CreateUser(ctx context.Context, input *CreateUserInpu
 		RPMLimit:      input.RPMLimit,
 		Status:        StatusActive,
 		AllowedGroups: input.AllowedGroups,
+		AllowedModels: input.AllowedModels,
 
 		RestrictPublicGroups: input.RestrictPublicGroups,
 	}
@@ -219,6 +220,7 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 	oldRole := user.Role
 	oldRPMLimit := user.RPMLimit
 	oldAllowedGroups := append([]int64(nil), user.AllowedGroups...)
+	oldAllowedModels := append([]string(nil), user.AllowedModels...)
 
 	// fields 与下面的 input.X 判空条件一一对应：管理员没提交的列不写回，
 	// 避免这份快照回滚并发的扣费、状态变更或批量限额调整。
@@ -281,6 +283,11 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 		fields.AllowedGroups = true
 	}
 
+	if input.AllowedModels != nil {
+		user.AllowedModels = *input.AllowedModels
+		fields.AllowedModels = true
+	}
+
 	oldRestrictPublicGroups := user.RestrictPublicGroups
 	if input.RestrictPublicGroups != nil {
 		user.RestrictPublicGroups = *input.RestrictPublicGroups
@@ -307,7 +314,7 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 	if s.authCacheInvalidator != nil {
 		// RPMLimit 直接参与 billing_cache_service.checkRPM 的三级级联，
 		// allowed_groups 参与 API Key 专属分组授权判断；不失效缓存会让修改在一个 L2 TTL 内失去效果。
-		if user.Concurrency != oldConcurrency || user.Status != oldStatus || user.Role != oldRole || user.RPMLimit != oldRPMLimit || user.RestrictPublicGroups != oldRestrictPublicGroups || !sameInt64Set(user.AllowedGroups, oldAllowedGroups) {
+		if user.Concurrency != oldConcurrency || user.Status != oldStatus || user.Role != oldRole || user.RPMLimit != oldRPMLimit || user.RestrictPublicGroups != oldRestrictPublicGroups || !sameStringSet(user.AllowedModels, oldAllowedModels) || !sameInt64Set(user.AllowedGroups, oldAllowedGroups) {
 			s.authCacheInvalidator.InvalidateAuthCacheByUserID(ctx, user.ID)
 		}
 	}
@@ -352,6 +359,26 @@ func sameInt64Set(a, b []int64) bool {
 			return false
 		}
 		counts[v]--
+	}
+	return true
+}
+
+func sameStringSet(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	if len(a) == 0 {
+		return true
+	}
+	counts := make(map[string]int, len(a))
+	for _, value := range a {
+		counts[value]++
+	}
+	for _, value := range b {
+		if counts[value] == 0 {
+			return false
+		}
+		counts[value]--
 	}
 	return true
 }

@@ -23,6 +23,9 @@ type User struct {
 	Concurrency    int
 	Status         string
 	AllowedGroups  []int64
+	// AllowedModels 是账户级模型白名单。空数组表示不额外限制，非空时只允许
+	// 列表中的模型（支持与分组白名单相同的通配符语义）。
+	AllowedModels []string
 	// RestrictPublicGroups narrows the public groups this user may bind to the
 	// ones listed in AllowedGroups. False keeps the default, where every public
 	// group is bindable.

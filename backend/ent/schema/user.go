@@ -120,6 +120,11 @@ func (User) Fields() []ent.Field {
 		// 用户级每分钟请求数上限（0 = 不限制）。仅当所在分组未设置 rpm_limit 时作为兜底生效。
 		field.Int("rpm_limit").
 			Default(0),
+
+		// 芽系列账号级模型白名单。空数组表示沿用分组能力，不额外限制。
+		// 平台创建家长 AI 账号时写入，鉴权快照和调用入口共同强制。
+		field.JSON("allowed_models", []string{}).
+			Default([]string{}),
 	}
 }
 
