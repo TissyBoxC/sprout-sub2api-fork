@@ -19,7 +19,7 @@
 監査、児童向けコンテンツ安全ポリシーを提供します。
 上流 Sub2API の帰属、ライセンス、スポンサー情報は変更しません。
 
-[English](README.md) | [中文](README_CN.md) | 日本語
+[English](README_EN.md) | [中文](README.md) | 日本語
 
 <!-- COMMUNITY_LINKS_START: 群链接待补充。 -->
 <!-- DOCUMENTATION_LINKS_START: 项目文档入口待补充。 -->
