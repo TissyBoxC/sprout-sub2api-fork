@@ -82,8 +82,9 @@ docker compose -f docker-compose.local.yml logs -f sub2api
 # If admin password was auto-generated, find it in logs:
 docker compose -f docker-compose.local.yml logs sub2api | grep "admin password"
 
-# Access Web UI
-# http://localhost:8080
+# Access the Sub2API Web UI
+# Local development: http://localhost:8080
+# 如此萌屋 production: https://sub.clarkhub.cn
 ```
 
 ### Method 2: Manual Deployment

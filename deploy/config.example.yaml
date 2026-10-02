@@ -25,8 +25,8 @@ server:
   enable_server_timing: false
   # Frontend base URL used to generate external links in emails (e.g. password reset)
   # 用于生成邮件中的外部链接（例如：重置密码链接）的前端基础地址
-  # Example: "https://example.com"
-  frontend_url: ""
+  # 如此萌屋生产公开地址：https://sub.clarkhub.cn
+  frontend_url: "https://sub.clarkhub.cn"
   # Maximum time to receive complete request headers. Does not limit response streams.
   # 完整读取请求头的最大时间；不限制响应流持续时间。
   read_header_timeout: 10
@@ -83,10 +83,10 @@ server:
 webauthn:
   enabled: false
   rp_display_name: "Sub2API"
-  # Example / 示例: "sub2api.example.com"
-  rp_id: ""
-  # Example / 示例: ["https://sub2api.example.com"]
-  rp_origins: []
+  # 如此萌屋生产公开地址；启用 Passkey 时必须与浏览器 Origin 完全一致。
+  rp_id: "sub.clarkhub.cn"
+  rp_origins:
+    - "https://sub.clarkhub.cn"
 
 # =============================================================================
 # Run Mode Configuration
