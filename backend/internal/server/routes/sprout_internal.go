@@ -308,7 +308,6 @@ func sproutUpdateAIAccountHandler(
 			user.ID,
 			&service.UpdateUserInput{
 				Status:        status,
-				Balance:       request.BalanceUSD,
 				Concurrency:   request.ConcurrencyLimit,
 				AllowedModels: request.AllowedModels,
 			},
@@ -316,6 +315,21 @@ func sproutUpdateAIAccountHandler(
 		if err != nil {
 			writeSproutServiceError(c, err, "更新 AI 账号失败", false)
 			return
+		}
+		// 余额必须走原子的 SetBalance：UpdateUser 写的是整行快照，用它顺带改余额会
+		// 覆盖并发的计费扣款。先落状态/并发/模型等非余额字段，再原子设余额。
+		if request.BalanceUSD != nil {
+			updated, err = dependencies.AdminService.UpdateUserBalance(
+				c.Request.Context(),
+				user.ID,
+				*request.BalanceUSD,
+				"set",
+				"sprout platform admin update",
+			)
+			if err != nil {
+				writeSproutServiceError(c, err, "更新 AI 账号失败", false)
+				return
+			}
 		}
 		writeSproutSuccess(c, sproutAIAccountResponse(updated))
 	}

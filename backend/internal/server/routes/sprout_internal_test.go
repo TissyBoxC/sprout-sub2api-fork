@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -8,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -159,6 +161,138 @@ func TestSelectSproutRecommendedModelReturnsEmptyWithoutOperationalLatency(t *te
 	}
 
 	require.Empty(t, selectSproutRecommendedModel(models))
+}
+
+// sproutAdminServiceStub 只实现 sprout 内部账号生命周期实际用到的 AdminService
+// 方法；其余方法通过内嵌接口保持 nil，未预期调用会 panic，避免测试假绿。
+type sproutAdminServiceStub struct {
+	service.AdminService
+
+	user            service.User
+	lastUpdateUser  *service.UpdateUserInput
+	updateUserCalls int
+
+	balanceCalls  int
+	balanceUserID int64
+	balanceAmount float64
+	balanceOp     string
+	balanceNotes  string
+}
+
+func (s *sproutAdminServiceStub) ListUsers(
+	_ context.Context,
+	_, _ int,
+	_ service.UserListFilters,
+	_, _ string,
+) ([]service.User, int64, error) {
+	return []service.User{s.user}, 1, nil
+}
+
+func (s *sproutAdminServiceStub) UpdateUser(
+	_ context.Context,
+	_ int64,
+	input *service.UpdateUserInput,
+) (*service.User, error) {
+	s.updateUserCalls++
+	s.lastUpdateUser = input
+	return &s.user, nil
+}
+
+func (s *sproutAdminServiceStub) UpdateUserBalance(
+	_ context.Context,
+	userID int64,
+	balance float64,
+	operation string,
+	notes string,
+) (*service.User, error) {
+	s.balanceCalls++
+	s.balanceUserID = userID
+	s.balanceAmount = balance
+	s.balanceOp = operation
+	s.balanceNotes = notes
+	s.user.Balance = balance
+	return &s.user, nil
+}
+
+func newSproutInternalBalanceTestRouter(stub *sproutAdminServiceStub) *gin.Engine {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	RegisterSproutInternalRoutes(router, sproutInternalTestConfig(), SproutInternalDependencies{
+		AdminService: stub,
+	})
+	return router
+}
+
+func sproutInternalAuthorizedRequest(method, target, body string) *http.Request {
+	request := httptest.NewRequest(method, target, strings.NewReader(body))
+	request.Header.Set("Authorization", "Bearer "+strings.Repeat("x", 32))
+	request.Header.Set("Content-Type", "application/json")
+	return request
+}
+
+func decodeSproutAccountBalance(t *testing.T, response *httptest.ResponseRecorder) float64 {
+	t.Helper()
+	require.Equal(t, http.StatusOK, response.Code)
+
+	var envelope struct {
+		Data  map[string]any   `json:"data"`
+		Error *sproutErrorBody `json:"error"`
+	}
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &envelope))
+	require.Nil(t, envelope.Error)
+	balance, ok := envelope.Data["balance_usd"].(float64)
+	require.True(t, ok, "balance_usd missing from response: %s", response.Body.String())
+	return balance
+}
+
+// 回归：平台更新 AI 账号时 balance_usd 曾只塞进 UpdateUserInput.Balance，
+// 而 UpdateUser 写的是整行快照且 UserUpdateFields 不含余额列，额度被静默丢弃。
+// 现在必须走原子的 SetBalance，且返回与再次读取都要是新额度。
+func TestSproutUpdateAIAccountPersistsBalanceAtomically(t *testing.T) {
+	stub := &sproutAdminServiceStub{user: service.User{ID: 7, Username: "sprout_parent_abc", Balance: 0}}
+	router := newSproutInternalBalanceTestRouter(stub)
+
+	updateResponse := httptest.NewRecorder()
+	router.ServeHTTP(updateResponse, sproutInternalAuthorizedRequest(
+		http.MethodPut,
+		"/internal/sprout/v1/ai-accounts/parent_abc",
+		`{"balance_usd":10}`,
+	))
+
+	require.Equal(t, 10.0, decodeSproutAccountBalance(t, updateResponse))
+	require.Equal(t, 1, stub.balanceCalls)
+	require.Equal(t, int64(7), stub.balanceUserID)
+	require.Equal(t, 10.0, stub.balanceAmount)
+	require.Equal(t, "set", stub.balanceOp)
+	require.NotEmpty(t, stub.balanceNotes)
+	require.NotNil(t, stub.lastUpdateUser)
+	require.Nil(t, stub.lastUpdateUser.Balance, "余额不应再经 UpdateUser 快照写入")
+
+	readResponse := httptest.NewRecorder()
+	router.ServeHTTP(readResponse, sproutInternalAuthorizedRequest(
+		http.MethodGet,
+		"/internal/sprout/v1/ai-accounts/parent_abc",
+		"",
+	))
+	require.Equal(t, 10.0, decodeSproutAccountBalance(t, readResponse))
+}
+
+// 未携带 balance_usd 时不得改动余额：既不调用 SetBalance，也要保持原值。
+func TestSproutUpdateAIAccountWithoutBalancePreservesBalance(t *testing.T) {
+	stub := &sproutAdminServiceStub{user: service.User{ID: 7, Username: "sprout_parent_abc", Balance: 3.5}}
+	router := newSproutInternalBalanceTestRouter(stub)
+
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, sproutInternalAuthorizedRequest(
+		http.MethodPut,
+		"/internal/sprout/v1/ai-accounts/parent_abc",
+		`{"status":"active"}`,
+	))
+
+	require.Equal(t, 3.5, decodeSproutAccountBalance(t, response))
+	require.Zero(t, stub.balanceCalls, "未提供额度时不得调用 SetBalance")
+	require.Equal(t, 1, stub.updateUserCalls)
+	require.Nil(t, stub.lastUpdateUser.Balance)
 }
 
 func sproutInternalTestConfig() *config.Config {
