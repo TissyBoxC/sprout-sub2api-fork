@@ -37,8 +37,10 @@ type sproutErrorBody struct {
 // The route layer never writes sub2api tables. FindUser must resolve only
 // accounts created by the platform's controlled "sprout_" username namespace.
 type SproutInternalDependencies struct {
-	AdminService  service.AdminService
-	APIKeyService *service.APIKeyService
+	AdminService          service.AdminService
+	APIKeyService         *service.APIKeyService
+	SettingService        *service.SettingService
+	ChannelMonitorService *service.ChannelMonitorService
 }
 
 // RegisterSproutInternalRoutes registers fork-owned service endpoints.
@@ -55,6 +57,7 @@ func RegisterSproutInternalRoutes(
 	internal := r.Group("/internal/sprout")
 	internal.Use(requireSproutInternalAPIToken(cfg.Sprout.InternalAPI.Token))
 	internal.GET("/v1/runtime", sproutRuntimeHandler)
+	internal.GET("/v1/runtime-config", sproutRuntimeConfigHandler(dependencies))
 	internal.POST("/v1/ai-accounts", sproutCreateAIAccountHandler(dependencies))
 	internal.GET("/v1/ai-accounts/:provider_account_id", sproutGetAIAccountHandler(dependencies))
 	internal.PUT("/v1/ai-accounts/:provider_account_id", sproutUpdateAIAccountHandler(dependencies))
@@ -106,12 +109,95 @@ func sproutRuntimeHandler(c *gin.Context) {
 	})
 }
 
+type sproutModelLatency struct {
+	Model                     string `json:"model"`
+	Status                    string `json:"status"`
+	PrimaryLatencyMs          *int   `json:"primary_latency_ms,omitempty"`
+	AverageLatency7DaysMs     *int   `json:"average_latency_7d_ms,omitempty"`
+	RecommendedForNewAccounts bool   `json:"recommended_for_new_accounts"`
+}
+
+func sproutRuntimeConfigHandler(
+	dependencies SproutInternalDependencies,
+) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if dependencies.SettingService == nil {
+			writeSproutError(c, http.StatusServiceUnavailable, "service_unavailable", "配置服务暂不可用", true)
+			return
+		}
+
+		defaultBalance := dependencies.SettingService.GetDefaultBalance(c.Request.Context())
+		defaultConcurrency := dependencies.SettingService.GetDefaultConcurrency(c.Request.Context())
+		models := make([]sproutModelLatency, 0)
+
+		if dependencies.ChannelMonitorService != nil {
+			views, err := dependencies.ChannelMonitorService.ListUserView(c.Request.Context())
+			if err != nil {
+				writeSproutServiceError(c, err, "读取模型延迟失败", true)
+				return
+			}
+			for _, view := range views {
+				if view == nil || strings.TrimSpace(view.PrimaryModel) == "" {
+					continue
+				}
+				models = append(models, sproutModelLatency{
+					Model:            view.PrimaryModel,
+					Status:           view.PrimaryStatus,
+					PrimaryLatencyMs: view.PrimaryLatencyMs,
+					RecommendedForNewAccounts: view.PrimaryStatus == service.MonitorStatusOperational &&
+						view.PrimaryLatencyMs != nil,
+				})
+				for _, extra := range view.ExtraModels {
+					if strings.TrimSpace(extra.Model) == "" {
+						continue
+					}
+					models = append(models, sproutModelLatency{
+						Model:            extra.Model,
+						Status:           extra.Status,
+						PrimaryLatencyMs: extra.LatencyMs,
+					})
+				}
+			}
+		}
+
+		recommendedModel := selectSproutRecommendedModel(models)
+		for index := range models {
+			models[index].RecommendedForNewAccounts =
+				models[index].Model == recommendedModel && recommendedModel != ""
+		}
+
+		writeSproutSuccess(c, gin.H{
+			"default_balance_usd": defaultBalance,
+			"default_concurrency": defaultConcurrency,
+			"models":              models,
+			"recommended_model":   recommendedModel,
+		})
+	}
+}
+
+func selectSproutRecommendedModel(models []sproutModelLatency) string {
+	recommendedModel := ""
+	recommendedLatency := 0
+	for index := range models {
+		model := models[index]
+		if !model.RecommendedForNewAccounts || model.PrimaryLatencyMs == nil {
+			continue
+		}
+		latency := *model.PrimaryLatencyMs
+		if recommendedModel == "" || latency < recommendedLatency {
+			recommendedModel = model.Model
+			recommendedLatency = latency
+		}
+	}
+	return recommendedModel
+}
+
 type sproutCreateAIAccountRequest struct {
 	ProviderAccountID    string   `json:"provider_account_id"`
 	ProviderAccountEmail string   `json:"provider_account_email"`
 	Username             string   `json:"username"`
 	Password             string   `json:"password"`
-	BalanceUSD           float64  `json:"balance_usd"`
+	BalanceUSD           *float64 `json:"balance_usd"`
 	ConcurrencyLimit     int      `json:"concurrency_limit"`
 	AllowedModels        []string `json:"allowed_models"`
 }
@@ -155,13 +241,12 @@ func sproutCreateAIAccountHandler(
 			return
 		}
 
-		balance := request.BalanceUSD
 		user, err := dependencies.AdminService.CreateUser(c.Request.Context(), &service.CreateUserInput{
 			Email:         request.ProviderAccountEmail,
 			Password:      request.Password,
 			Username:      sproutProviderUsername(request.Username, request.ProviderAccountID),
 			Notes:         "managed by sprout-device-platform:" + request.ProviderAccountID,
-			Balance:       &balance,
+			Balance:       request.BalanceUSD,
 			Concurrency:   request.ConcurrencyLimit,
 			AllowedModels: request.AllowedModels,
 			Role:          service.RoleUser,

@@ -61,6 +61,23 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SproutErrorEnvelope"
+  /internal/sprout/v1/runtime-config:
+    get:
+      tags:
+        - internal
+      operationId: getSproutInternalRuntimeConfig
+      summary: Read authoritative platform defaults and model latency
+      security:
+        - serviceToken: []
+      responses:
+        "200":
+          description: Runtime defaults and model recommendations
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SproutRuntimeConfigEnvelope"
+        "401":
+          $ref: "#/components/responses/InternalAuthenticationFailure"
   /internal/sprout/v1/ai-accounts/{provider_account_id}:
     get:
       tags:
@@ -207,6 +224,67 @@ components:
           schema:
             $ref: "#/components/schemas/SproutErrorEnvelope"
   schemas:
+    SproutRuntimeConfig:
+      type: object
+      additionalProperties: false
+      required:
+        - default_balance_usd
+        - default_concurrency
+        - models
+        - recommended_model
+      properties:
+        default_balance_usd:
+          type: number
+          minimum: 0
+        default_concurrency:
+          type: integer
+          minimum: 0
+        recommended_model:
+          type: string
+        models:
+          type: array
+          items:
+            $ref: "#/components/schemas/SproutModelLatency"
+    SproutModelLatency:
+      type: object
+      additionalProperties: false
+      required:
+        - model
+        - status
+        - recommended_for_new_accounts
+      properties:
+        model:
+          type: string
+        status:
+          type: string
+        primary_latency_ms:
+          type: integer
+          minimum: 0
+        average_latency_7d_ms:
+          type: integer
+          minimum: 0
+        recommended_for_new_accounts:
+          type: boolean
+    SproutRuntimeConfigEnvelope:
+      type: object
+      additionalProperties: false
+      required:
+        - schema_version
+        - request_id
+        - data
+        - error
+      properties:
+        schema_version:
+          type: string
+          const: "1.0.0"
+        request_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        data:
+          $ref: "#/components/schemas/SproutRuntimeConfig"
+        error:
+          type: "null"
     SproutAIAccountCreateRequest:
       type: object
       additionalProperties: false
@@ -230,6 +308,10 @@ components:
         balance_usd:
           type: number
           minimum: 0
+          description: |
+            Optional opening balance. Omit this field to use the gateway's
+            system default balance; send 0 explicitly only when the account
+            must start at zero.
         concurrency_limit:
           type: integer
           minimum: 1

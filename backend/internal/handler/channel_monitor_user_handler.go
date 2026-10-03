@@ -30,6 +30,16 @@ func NewChannelMonitorUserHandler(
 	}
 }
 
+// MonitorService exposes the read-only monitor service to the internal Sprout
+// runtime-config route. The handler keeps ownership of the dependency so the
+// existing Wire graph does not need a second service instance.
+func (h *ChannelMonitorUserHandler) MonitorService() *service.ChannelMonitorService {
+	if h == nil {
+		return nil
+	}
+	return h.monitorService
+}
+
 // featureEnabled 返回当前渠道监控功能是否开启。
 // settingService 为 nil（测试场景）视为启用。
 func (h *ChannelMonitorUserHandler) featureEnabled(c *gin.Context) bool {

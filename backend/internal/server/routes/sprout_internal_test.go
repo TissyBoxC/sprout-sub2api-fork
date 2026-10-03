@@ -139,6 +139,28 @@ func TestSproutProviderUserStatus(t *testing.T) {
 	}
 }
 
+func TestSelectSproutRecommendedModelUsesLowestOperationalLatency(t *testing.T) {
+	fast := 120
+	slow := 340
+	models := []sproutModelLatency{
+		{Model: "degraded", Status: "degraded", PrimaryLatencyMs: &fast},
+		{Model: "slow", Status: "operational", PrimaryLatencyMs: &slow, RecommendedForNewAccounts: true},
+		{Model: "fast", Status: "operational", PrimaryLatencyMs: &fast, RecommendedForNewAccounts: true},
+	}
+
+	require.Equal(t, "fast", selectSproutRecommendedModel(models))
+}
+
+func TestSelectSproutRecommendedModelReturnsEmptyWithoutOperationalLatency(t *testing.T) {
+	latency := 80
+	models := []sproutModelLatency{
+		{Model: "failed", Status: "failed", PrimaryLatencyMs: &latency},
+		{Model: "unknown", Status: "operational"},
+	}
+
+	require.Empty(t, selectSproutRecommendedModel(models))
+}
+
 func sproutInternalTestConfig() *config.Config {
 	return &config.Config{
 		Sprout: config.SproutConfig{

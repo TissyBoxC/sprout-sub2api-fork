@@ -119,8 +119,10 @@ func registerRoutes(
 	// 通用路由（健康检查、状态等）
 	routes.RegisterCommonRoutes(r)
 	routes.RegisterSproutInternalRoutes(r, cfg, routes.SproutInternalDependencies{
-		AdminService:  adminService,
-		APIKeyService: apiKeyService,
+		AdminService:          adminService,
+		APIKeyService:         apiKeyService,
+		SettingService:        settingService,
+		ChannelMonitorService: h.ChannelMonitor.MonitorService(),
 	})
 
 	// API v1
