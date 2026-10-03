@@ -354,7 +354,11 @@ func tryServeOverrideFile(c *gin.Context, overrideDir, cleanPath string) bool {
 
 func shouldBypassEmbeddedFrontend(path string) bool {
 	trimmed := strings.TrimSpace(path)
+	// Service-to-service endpoints must never fall through to the SPA shell.
+	// Registering them here keeps the embedded frontend from turning a missing
+	// route into a misleading 200 HTML response.
 	return strings.HasPrefix(trimmed, "/api/") ||
+		strings.HasPrefix(trimmed, "/internal/") ||
 		strings.HasPrefix(trimmed, "/v1/") ||
 		strings.HasPrefix(trimmed, "/v1beta/") ||
 		strings.HasPrefix(trimmed, "/backend-api/") ||
