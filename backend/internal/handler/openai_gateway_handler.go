@@ -3426,6 +3426,14 @@ func (h *OpenAIGatewayHandler) handleConcurrencyError(c *gin.Context, err error,
 }
 
 func (h *OpenAIGatewayHandler) handleFailoverExhausted(c *gin.Context, failoverErr *service.UpstreamFailoverError, streamStarted bool) {
+	// Robot device conversations degrade to one stable classification: the voice
+	// gateway maps code=provider_unavailable to its client state instead of
+	// surfacing scheduler/upstream internals. Only applies before any bytes are
+	// committed; an in-flight stream reports its own SSE error event.
+	if !streamStarted && middleware2.SproutTaggedRequest(c) {
+		middleware2.WriteSproutProviderUnavailable(c)
+		return
+	}
 	if failoverErr == nil {
 		h.handleFailoverExhaustedSimple(c, http.StatusBadGateway, streamStarted)
 		return
@@ -3569,6 +3577,10 @@ func isSafeRetryAfter(value string) bool {
 
 // handleFailoverExhaustedSimple 简化版本，用于没有响应体的情况
 func (h *OpenAIGatewayHandler) handleFailoverExhaustedSimple(c *gin.Context, statusCode int, streamStarted bool) {
+	if !streamStarted && middleware2.SproutTaggedRequest(c) {
+		middleware2.WriteSproutProviderUnavailable(c)
+		return
+	}
 	status, errType, errMsg := h.mapUpstreamError(statusCode)
 	service.SetOpsUpstreamError(c, statusCode, errMsg, "")
 	h.handleStreamingAwareError(c, status, errType, errMsg, streamStarted)

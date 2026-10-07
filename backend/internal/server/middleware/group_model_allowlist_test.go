@@ -123,6 +123,22 @@ func TestGroupModelAllowlistEnforcesAccountAllowlist(t *testing.T) {
 	}
 }
 
+// An account with an empty allowed_models list keeps the pre-existing behavior:
+// every model passes on the completion path, so existing keys are not broken.
+func TestGroupModelAllowlistEmptyAccountAllowlistAllowsAllModels(t *testing.T) {
+	router, calls := newGroupModelAllowlistTestRouter(accountAllowlistAPIKey(), "/v1")
+
+	for _, model := range []string{"gpt-5.4", "claude-opus-4.6", "gemini-2.5-pro"} {
+		w := doJSON(t, router, http.MethodPost, "/v1/chat/completions", `{"model":"`+model+`"}`)
+		if w.Code != http.StatusOK {
+			t.Fatalf("empty allowlist must keep %s available, got %d: %s", model, w.Code, w.Body.String())
+		}
+	}
+	if len(*calls) != 3 {
+		t.Fatalf("expected all models to reach the handler, got %v", *calls)
+	}
+}
+
 func TestGroupModelAllowlistEnforcesAccountAndGroupIntersection(t *testing.T) {
 	apiKey := accountAllowlistAPIKey("claude-sonnet-*", "gpt-5.4")
 	apiKey.Group.ModelAllowlist = service.GroupModelAllowlist{
