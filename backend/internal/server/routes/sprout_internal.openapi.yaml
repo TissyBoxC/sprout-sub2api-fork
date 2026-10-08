@@ -129,6 +129,41 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SproutErrorEnvelope"
+    delete:
+      tags:
+        - internal
+      operationId: deleteSproutAIAccount
+      summary: Delete one controlled provider account
+      description: |
+        Deletes only accounts created by the platform with the controlled
+        sprout_ username, platform ownership note, and @ai.sprout.local email
+        domain. Deleting an already soft-deleted controlled account is
+        idempotent. Ordinary users are never affected.
+      security:
+        - serviceToken: []
+      parameters:
+        - $ref: "#/components/parameters/ProviderAccountID"
+      responses:
+        "200":
+          description: Controlled provider account deleted or already deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SproutAIAccountDeletedEnvelope"
+        "400":
+          description: Invalid provider account identifier
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SproutErrorEnvelope"
+        "401":
+          $ref: "#/components/responses/InternalAuthenticationFailure"
+        "404":
+          description: Controlled provider account not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SproutErrorEnvelope"
   /internal/sprout/v1/ai-accounts/{provider_account_id}/api-keys:
     post:
       tags:
@@ -411,6 +446,37 @@ components:
           maxLength: 128
         data:
           $ref: "#/components/schemas/SproutAIAccount"
+        error:
+          type: "null"
+    SproutAIAccountDeletedEnvelope:
+      type: object
+      additionalProperties: false
+      required:
+        - schema_version
+        - request_id
+        - data
+        - error
+      properties:
+        schema_version:
+          type: string
+          const: "1.0.0"
+        request_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        data:
+          type: object
+          additionalProperties: false
+          required:
+            - provider_account_id
+            - deleted
+          properties:
+            provider_account_id:
+              type: string
+              pattern: "^parent_[a-f0-9]{32}$"
+            deleted:
+              type: boolean
+              const: true
         error:
           type: "null"
     SproutAPIKey:

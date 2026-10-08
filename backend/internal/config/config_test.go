@@ -104,8 +104,10 @@ func TestValidateSproutInternalAPIRequiresStrongTokenWhenEnabled(t *testing.T) {
 		wantErrText string
 	}{
 		{name: "missing token", wantErrText: "sprout.internal_api.token"},
-		{name: "short token", token: strings.Repeat("x", 31), wantErrText: "sprout.internal_api.token"},
-		{name: "valid token", token: strings.Repeat("x", 32)},
+		{name: "short token", token: "abc123", wantErrText: "sprout.internal_api.token"},
+		{name: "low entropy token", token: strings.Repeat("x", 32), wantErrText: "sprout.internal_api.token"},
+		{name: "placeholder token", token: "change-me-change-me-change-me-1234", wantErrText: "sprout.internal_api.token"},
+		{name: "valid token", token: "aB3dE5gH7jK9mN2pQ4sT6vW8yZ0cD1fG"},
 	}
 
 	for _, tt := range tests {

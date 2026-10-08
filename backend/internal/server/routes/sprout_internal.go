@@ -10,13 +10,29 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/Wei-Shaw/sub2api/internal/util/logredact"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
 
 const sproutResponseSchemaVersion = "1.0.0"
+
+// sproutInternalIdentityHeaders are end-user identity headers. The internal API
+// is service-to-service only; accepting any of these would let a parent or
+// child credential masquerade as a trusted platform service.
+var sproutInternalIdentityHeaders = []string{
+	"X-Sprout-Parent-ID",
+	"X-Sprout-Child-ID",
+	"X-Sprout-Device-ID",
+	"X-Sprout-Account-ID",
+	"X-Parent-ID",
+	"X-Child-ID",
+}
+
+const sproutInternalAuditActor = "sprout-device-platform"
 
 type sproutResponseEnvelope struct {
 	SchemaVersion string           `json:"schema_version"`
@@ -41,6 +57,7 @@ type SproutInternalDependencies struct {
 	APIKeyService         *service.APIKeyService
 	SettingService        *service.SettingService
 	ChannelMonitorService *service.ChannelMonitorService
+	AuditLogService       *service.AuditLogService
 }
 
 // RegisterSproutInternalRoutes registers fork-owned service endpoints.
@@ -56,11 +73,17 @@ func RegisterSproutInternalRoutes(
 
 	internal := r.Group("/internal/sprout")
 	internal.Use(requireSproutInternalAPIToken(cfg.Sprout.InternalAPI.Token))
+	internal.Use(rejectSproutEndUserIdentity())
+	internal.Use(auditSproutInternalMutation(dependencies.AuditLogService))
 	internal.GET("/v1/runtime", sproutRuntimeHandler)
 	internal.GET("/v1/runtime-config", sproutRuntimeConfigHandler(dependencies))
 	internal.POST("/v1/ai-accounts", sproutCreateAIAccountHandler(dependencies))
 	internal.GET("/v1/ai-accounts/:provider_account_id", sproutGetAIAccountHandler(dependencies))
 	internal.PUT("/v1/ai-accounts/:provider_account_id", sproutUpdateAIAccountHandler(dependencies))
+	internal.DELETE(
+		"/v1/ai-accounts/:provider_account_id",
+		sproutDeleteAIAccountHandler(dependencies),
+	)
 	internal.POST(
 		"/v1/ai-accounts/:provider_account_id/api-keys",
 		sproutCreateAPIKeyHandler(dependencies),
@@ -77,9 +100,19 @@ func RegisterSproutInternalRoutes(
 
 func requireSproutInternalAPIToken(expectedToken string) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if err := config.ValidateSproutInternalAPIToken(expectedToken); err != nil {
+			writeSproutError(
+				c,
+				http.StatusServiceUnavailable,
+				"service_auth_not_configured",
+				"服务认证暂不可用",
+				false,
+			)
+			c.Abort()
+			return
+		}
 		providedToken, ok := sproutBearerToken(c.GetHeader("Authorization"))
-		if !ok || expectedToken == "" ||
-			subtle.ConstantTimeCompare([]byte(providedToken), []byte(expectedToken)) != 1 {
+		if !ok || subtle.ConstantTimeCompare([]byte(providedToken), []byte(expectedToken)) != 1 {
 			writeSproutError(
 				c,
 				http.StatusUnauthorized,
@@ -92,6 +125,94 @@ func requireSproutInternalAPIToken(expectedToken string) gin.HandlerFunc {
 		}
 		c.Next()
 	}
+}
+
+func rejectSproutEndUserIdentity() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		for _, header := range sproutInternalIdentityHeaders {
+			if strings.TrimSpace(c.GetHeader(header)) != "" {
+				writeSproutError(
+					c,
+					http.StatusForbidden,
+					"end_user_identity_forbidden",
+					"此服务不允许家长或儿童身份访问",
+					false,
+				)
+				c.Abort()
+				return
+			}
+		}
+		c.Next()
+	}
+}
+
+// auditSproutInternalMutation records sensitive service-to-service writes with
+// a stable service actor and request correlation. Account lifecycle payloads
+// contain passwords and one-time API keys, so body content is never stored.
+func auditSproutInternalMutation(auditService *service.AuditLogService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if auditService == nil || c.Request == nil || c.Request.Method == http.MethodGet {
+			c.Next()
+			return
+		}
+		start := time.Now()
+		c.Next()
+
+		extra := map[string]any{
+			"result": sproutInternalAuditResult(c.Writer.Status()),
+		}
+		if providerAccountID := strings.TrimSpace(c.Param("provider_account_id")); providerAccountID != "" {
+			extra["provider_account_id"] = providerAccountID
+		}
+		if apiKeyID := strings.TrimSpace(c.Param("api_key_id")); apiKeyID != "" {
+			extra["api_key_id"] = apiKeyID
+		}
+		entry := &service.AuditLog{
+			CreatedAt:        time.Now().UTC(),
+			ActorEmail:       sproutInternalAuditActor,
+			AuthMethod:       "service_token",
+			CredentialMasked: middleware2.MaskedRequestCredential(c),
+			Action:           sproutInternalAuditAction(c),
+			Method:           c.Request.Method,
+			Path:             c.FullPath(),
+			StatusCode:       c.Writer.Status(),
+			LatencyMs:        time.Since(start).Milliseconds(),
+			Extra:            extra,
+		}
+		if c.Request.URL != nil {
+			entry.RequestID = sproutRequestID(c)
+			entry.ClientIP = c.ClientIP()
+			entry.UserAgent = c.Request.UserAgent()
+		}
+		auditService.Record(entry)
+	}
+}
+
+func sproutInternalAuditAction(c *gin.Context) string {
+	path := c.FullPath()
+	switch {
+	case strings.HasSuffix(path, "/api-keys") && c.Request.Method == http.MethodPost:
+		return "sprout.ai_account.api_key.create"
+	case strings.HasSuffix(path, "/rotate"):
+		return "sprout.ai_account.api_key.rotate"
+	case strings.Contains(path, "/api-keys/") && c.Request.Method == http.MethodDelete:
+		return "sprout.ai_account.api_key.delete"
+	case c.Request.Method == http.MethodPost && strings.HasSuffix(path, "/ai-accounts"):
+		return "sprout.ai_account.create"
+	case c.Request.Method == http.MethodPut:
+		return "sprout.ai_account.update"
+	case c.Request.Method == http.MethodDelete:
+		return "sprout.ai_account.delete"
+	default:
+		return "sprout.internal." + strings.ToLower(c.Request.Method)
+	}
+}
+
+func sproutInternalAuditResult(status int) string {
+	if status >= 200 && status < 400 {
+		return "success"
+	}
+	return "failure"
 }
 
 func sproutRuntimeHandler(c *gin.Context) {
@@ -231,9 +352,16 @@ func sproutCreateAIAccountHandler(
 		}
 		request.ProviderAccountID = strings.TrimSpace(request.ProviderAccountID)
 		request.ProviderAccountEmail = strings.TrimSpace(request.ProviderAccountEmail)
-		if request.ProviderAccountID == "" || request.ProviderAccountEmail == "" ||
+		if !sproutValidProviderAccountID(request.ProviderAccountID) ||
+			!sproutControlledProviderEmail(request.ProviderAccountEmail) ||
 			len(request.Password) < 16 || request.ConcurrencyLimit <= 0 {
 			writeSproutError(c, http.StatusUnprocessableEntity, "validation_failed", "账号参数不完整", false)
+			return
+		}
+		controlledUsername := sproutControlledUsername(request.ProviderAccountID)
+		if username := strings.TrimSpace(request.Username); username != "" &&
+			username != controlledUsername {
+			writeSproutError(c, http.StatusUnprocessableEntity, "validation_failed", "账号用户名不正确", false)
 			return
 		}
 		if dependencies.AdminService == nil {
@@ -244,8 +372,8 @@ func sproutCreateAIAccountHandler(
 		user, err := dependencies.AdminService.CreateUser(c.Request.Context(), &service.CreateUserInput{
 			Email:         request.ProviderAccountEmail,
 			Password:      request.Password,
-			Username:      sproutProviderUsername(request.Username, request.ProviderAccountID),
-			Notes:         "managed by sprout-device-platform:" + request.ProviderAccountID,
+			Username:      controlledUsername,
+			Notes:         sproutControlledNotes(request.ProviderAccountID),
 			Balance:       request.BalanceUSD,
 			Concurrency:   request.ConcurrencyLimit,
 			AllowedModels: request.AllowedModels,
@@ -463,6 +591,153 @@ func sproutDeleteAPIKeyHandler(
 	}
 }
 
+func sproutDeleteAIAccountHandler(
+	dependencies SproutInternalDependencies,
+) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if dependencies.AdminService == nil {
+			writeSproutError(c, http.StatusServiceUnavailable, "service_unavailable", "账号服务暂不可用", true)
+			return
+		}
+
+		providerAccountID := strings.TrimSpace(c.Param("provider_account_id"))
+		if !sproutValidProviderAccountID(providerAccountID) {
+			writeSproutError(c, http.StatusBadRequest, "invalid_request", "账号参数不正确", false)
+			return
+		}
+
+		// IncludeDeleted is required for both the lookup and the idempotent
+		// retry path: after the first delete the row is soft-deleted and a
+		// normal lookup intentionally cannot see it.
+		controlledUsername := sproutControlledUsername(providerAccountID)
+		controlledNotes := sproutControlledNotes(providerAccountID)
+		user, err := sproutFindControlledAIAccount(
+			c,
+			dependencies,
+			controlledUsername,
+			controlledNotes,
+			true,
+		)
+		if err != nil {
+			if errors.Is(err, service.ErrUserNotFound) {
+				writeSproutError(c, http.StatusNotFound, "not_found", "没有找到这条内容", false)
+				return
+			}
+			writeSproutServiceError(c, err, "删除 AI 账号失败", true)
+			return
+		}
+		if user.DeletedAt != nil {
+			writeSproutSuccess(c, gin.H{
+				"provider_account_id": providerAccountID,
+				"deleted":             true,
+			})
+			return
+		}
+
+		if err := dependencies.AdminService.DeleteUser(c.Request.Context(), user.ID); err != nil {
+			if errors.Is(err, service.ErrUserNotFound) {
+				// Another request may have deleted the row between lookup and
+				// delete. Re-resolve with soft-deleted rows included before
+				// deciding the retry is safe.
+				if _, lookupErr := sproutFindControlledAIAccount(
+					c,
+					dependencies,
+					controlledUsername,
+					controlledNotes,
+					true,
+				); lookupErr == nil {
+					writeSproutSuccess(c, gin.H{
+						"provider_account_id": providerAccountID,
+						"deleted":             true,
+					})
+					return
+				}
+			}
+			writeSproutServiceError(c, err, "删除 AI 账号失败", true)
+			return
+		}
+		writeSproutSuccess(c, gin.H{
+			"provider_account_id": providerAccountID,
+			"deleted":             true,
+		})
+	}
+}
+
+// sproutFindControlledAIAccount resolves one exact account created by the
+// platform. The username alone is not sufficient: OAuth registration can
+// supply arbitrary usernames, so both the exact username and the immutable
+// platform ownership note must match. Repository search is intentionally fuzzy
+// and is never trusted for authorization decisions.
+func sproutFindControlledAIAccount(
+	c *gin.Context,
+	dependencies SproutInternalDependencies,
+	controlledUsername string,
+	controlledNotes string,
+	includeDeleted bool,
+) (*service.User, error) {
+	const pageSize = 100
+	for page := 1; ; page++ {
+		users, total, err := dependencies.AdminService.ListUsers(
+			c.Request.Context(),
+			page,
+			pageSize,
+			service.UserListFilters{
+				Search:         controlledUsername,
+				IncludeDeleted: includeDeleted,
+			},
+			"",
+			"",
+		)
+		if err != nil {
+			return nil, err
+		}
+		for index := range users {
+			if sproutIsControlledAIAccount(&users[index], controlledUsername, controlledNotes) {
+				return &users[index], nil
+			}
+		}
+		if len(users) == 0 || int64(page*pageSize) >= total {
+			break
+		}
+	}
+	return nil, service.ErrUserNotFound
+}
+
+func sproutIsControlledAIAccount(
+	user *service.User,
+	controlledUsername string,
+	controlledNotes string,
+) bool {
+	if user == nil ||
+		user.Username != controlledUsername ||
+		user.Notes != controlledNotes {
+		return false
+	}
+	return sproutControlledProviderEmail(user.Email)
+}
+
+func sproutControlledProviderEmail(email string) bool {
+	return strings.HasSuffix(strings.ToLower(strings.TrimSpace(email)), "@ai.sprout.local")
+}
+
+func sproutValidProviderAccountID(providerAccountID string) bool {
+	providerAccountID = strings.TrimSpace(providerAccountID)
+	if !strings.HasPrefix(providerAccountID, "parent_") {
+		return false
+	}
+	suffix := strings.TrimPrefix(providerAccountID, "parent_")
+	if len(suffix) != 32 {
+		return false
+	}
+	for _, r := range suffix {
+		if (r >= 'a' && r <= 'f') || (r >= '0' && r <= '9') {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
 func sproutFindAIAccount(
 	c *gin.Context,
 	dependencies SproutInternalDependencies,
@@ -474,23 +749,13 @@ func sproutFindAIAccount(
 	if dependencies.AdminService == nil {
 		return nil, errors.New("admin service is not configured")
 	}
-	users, _, err := dependencies.AdminService.ListUsers(
-		c.Request.Context(),
-		1,
-		20,
-		service.UserListFilters{Search: "sprout_" + providerAccountID},
-		"",
-		"",
+	return sproutFindControlledAIAccount(
+		c,
+		dependencies,
+		sproutControlledUsername(providerAccountID),
+		sproutControlledNotes(providerAccountID),
+		false,
 	)
-	if err != nil {
-		return nil, err
-	}
-	for index := range users {
-		if users[index].Username == "sprout_"+providerAccountID {
-			return &users[index], nil
-		}
-	}
-	return nil, service.ErrUserNotFound
 }
 
 func sproutAIAccountResponse(user *service.User) gin.H {
@@ -517,12 +782,12 @@ func sproutAPIKeyResponse(userID int64, key *service.APIKey) gin.H {
 	}
 }
 
-func sproutProviderUsername(username string, providerAccountID string) string {
-	trimmed := strings.TrimSpace(username)
-	if trimmed != "" {
-		return trimmed
-	}
-	return "sprout_" + providerAccountID
+func sproutControlledUsername(providerAccountID string) string {
+	return "sprout_" + strings.TrimSpace(providerAccountID)
+}
+
+func sproutControlledNotes(providerAccountID string) string {
+	return "managed by sprout-device-platform:" + strings.TrimSpace(providerAccountID)
 }
 
 // sproutProviderUserStatus maps the platform lifecycle vocabulary to the
@@ -579,11 +844,26 @@ func writeSproutServiceError(
 	status := http.StatusBadRequest
 	if errors.Is(err, service.ErrUserNotFound) {
 		status = http.StatusNotFound
+	} else if errors.Is(err, service.ErrInsufficientPerms) {
+		status = http.StatusForbidden
+	} else {
+		redacted := ""
+		if err != nil {
+			redacted = strings.ToLower(logredact.RedactText(err.Error()))
+		}
+		for _, hint := range []string{"connection", "database", "sql", "timeout", "upstream"} {
+			if strings.Contains(redacted, hint) {
+				status = http.StatusServiceUnavailable
+				retryable = true
+				break
+			}
+		}
 	}
 	writeSproutError(c, status, "operation_failed", message, retryable)
 }
 
 func writeSproutSuccess(c *gin.Context, data any) {
+	c.Header("Cache-Control", "no-store")
 	c.JSON(http.StatusOK, sproutResponseEnvelope{
 		SchemaVersion: sproutResponseSchemaVersion,
 		RequestID:     sproutRequestID(c),
@@ -599,6 +879,7 @@ func writeSproutError(
 	message string,
 	retryable bool,
 ) {
+	c.Header("Cache-Control", "no-store")
 	c.JSON(status, sproutResponseEnvelope{
 		SchemaVersion: sproutResponseSchemaVersion,
 		RequestID:     sproutRequestID(c),

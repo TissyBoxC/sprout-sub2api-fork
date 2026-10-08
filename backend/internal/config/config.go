@@ -124,6 +124,39 @@ type SproutInternalAPIConfig struct {
 	Token   string `mapstructure:"token"`
 }
 
+// ValidateSproutInternalAPIToken rejects missing, placeholder, low-entropy, or
+// whitespace-containing service credentials. The internal Sprout API must fail
+// closed when its shared secret is not strong enough.
+func ValidateSproutInternalAPIToken(token string) error {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return fmt.Errorf("is required when enabled")
+	}
+	if len(token) < 32 {
+		return fmt.Errorf("must be at least 32 characters when enabled")
+	}
+	if strings.ContainsAny(token, " \t\r\n") {
+		return fmt.Errorf("must not contain whitespace")
+	}
+	if strings.HasPrefix(strings.ToLower(token), "bearer ") {
+		return fmt.Errorf("must be the raw token without a scheme prefix")
+	}
+	lower := strings.ToLower(token)
+	for _, weak := range []string{"change-me", "changeme", "replace-with", "example", "password", "secret"} {
+		if strings.Contains(lower, weak) {
+			return fmt.Errorf("must not contain a placeholder value")
+		}
+	}
+	unique := make(map[rune]struct{}, len(token))
+	for _, r := range token {
+		unique[r] = struct{}{}
+	}
+	if len(unique) < 8 {
+		return fmt.Errorf("must contain at least 8 distinct characters")
+	}
+	return nil
+}
+
 // SimpleModeConfig controls startup behavior in simple mode.
 type SimpleModeConfig struct {
 	AutoCreateDefaultGroups bool `mapstructure:"auto_create_default_groups" yaml:"auto_create_default_groups"`
@@ -2718,8 +2751,10 @@ func setEnvReachableDefaults() {
 }
 
 func (c *Config) Validate() error {
-	if c.Sprout.InternalAPI.Enabled && len(c.Sprout.InternalAPI.Token) < 32 {
-		return fmt.Errorf("sprout.internal_api.token must be at least 32 characters when enabled")
+	if c.Sprout.InternalAPI.Enabled {
+		if err := ValidateSproutInternalAPIToken(c.Sprout.InternalAPI.Token); err != nil {
+			return fmt.Errorf("sprout.internal_api.token: %w", err)
+		}
 	}
 	forwardedClientIPHeaders, err := NormalizeForwardedClientIPHeaders(c.Security.ForwardedClientIPHeaders)
 	if err != nil {

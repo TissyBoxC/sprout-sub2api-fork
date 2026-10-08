@@ -68,6 +68,66 @@ func TestSproutInternalOpenAPIContract(t *testing.T) {
 		[]any{"unauthenticated"},
 		specValue(t, errorSchema, "properties", "error", "properties", "code", "enum"),
 	)
+
+	deleteOperation := specMap(
+		t,
+		specValue(
+			t,
+			specification,
+			"paths",
+			"/internal/sprout/v1/ai-accounts/{provider_account_id}",
+			"delete",
+		),
+	)
+	require.Equal(t, "deleteSproutAIAccount", deleteOperation["operationId"])
+	require.Equal(
+		t,
+		[]any{map[string]any{"serviceToken": []any{}}},
+		deleteOperation["security"],
+	)
+	require.Equal(
+		t,
+		"#/components/schemas/SproutAIAccountDeletedEnvelope",
+		specValue(
+			t,
+			deleteOperation,
+			"responses",
+			"200",
+			"content",
+			"application/json",
+			"schema",
+			"$ref",
+		),
+	)
+
+	deletedSchema := specMap(
+		t,
+		specValue(
+			t,
+			specification,
+			"components",
+			"schemas",
+			"SproutAIAccountDeletedEnvelope",
+		),
+	)
+	require.Equal(
+		t,
+		true,
+		specValue(t, deletedSchema, "properties", "data", "properties", "deleted", "const"),
+	)
+	require.Equal(
+		t,
+		"^parent_[a-f0-9]{32}$",
+		specValue(
+			t,
+			deletedSchema,
+			"properties",
+			"data",
+			"properties",
+			"provider_account_id",
+			"pattern",
+		),
+	)
 }
 
 func readSproutInternalOpenAPI(t *testing.T) map[string]any {
