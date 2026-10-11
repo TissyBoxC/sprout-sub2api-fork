@@ -170,6 +170,43 @@ func TestSproutChildPolicyRejectsEnabledWithoutDefaultOrVersions(t *testing.T) {
 	require.ErrorContains(t, err, "sprout.child_policy")
 }
 
+// Every Sprout customization must be reachable through the reserved SPROUT_
+// environment prefix so the fork never collides with an upstream SUB2API_ key.
+func TestSproutConfigUsesDedicatedEnvironmentPrefix(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	t.Setenv("SPROUT_INTERNAL_API_ENABLED", "true")
+	t.Setenv("SPROUT_INTERNAL_API_TOKEN", "aB3dE5gH7jK9mN2pQ4sT6vW8yZ0cD1fG")
+	t.Setenv("SPROUT_CHILD_POLICY_ENABLED", "true")
+	t.Setenv("SPROUT_CHILD_POLICY_DEFAULT_AGE_BAND", "9-12")
+	t.Setenv("SPROUT_CHILD_POLICY_REQUIRE_POLICY_VERSION", "true")
+	t.Setenv("SPROUT_CHILD_POLICY_INJECT_SAFETY_BOUNDARY", "false")
+	t.Setenv("SPROUT_CHILD_POLICY_SAFETY_BOUNDARY", "fork-owned boundary")
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.True(t, cfg.Sprout.InternalAPI.Enabled)
+	require.Equal(t, "aB3dE5gH7jK9mN2pQ4sT6vW8yZ0cD1fG", cfg.Sprout.InternalAPI.Token)
+	require.True(t, cfg.Sprout.ChildPolicy.Enabled)
+	require.Equal(t, "9-12", cfg.Sprout.ChildPolicy.DefaultAgeBand)
+	require.True(t, cfg.Sprout.ChildPolicy.RequirePolicyVersion)
+	require.False(t, cfg.Sprout.ChildPolicy.InjectSafetyBoundary)
+	require.Equal(t, "fork-owned boundary", cfg.Sprout.ChildPolicy.SafetyBoundary)
+}
+
+// Upstream SUB2API_ variables must not bleed into the fork's sprout namespace.
+func TestSproutConfigIgnoresUpstreamSub2APIEnvironment(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	t.Setenv("SUB2API_SPROUT_INTERNAL_API_ENABLED", "true")
+	t.Setenv("SUB2API_INTERNAL_API_TOKEN", "aB3dE5gH7jK9mN2pQ4sT6vW8yZ0cD1fG")
+	t.Setenv("SUB2API_CHILD_POLICY_ENABLED", "true")
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.False(t, cfg.Sprout.InternalAPI.Enabled)
+	require.Empty(t, cfg.Sprout.InternalAPI.Token)
+	require.False(t, cfg.Sprout.ChildPolicy.Enabled)
+}
+
 func TestLoadRedisUsernameFromEnvironment(t *testing.T) {
 	resetViperWithJWTSecret(t)
 	t.Setenv("REDIS_USERNAME", "app-user")

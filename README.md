@@ -220,6 +220,28 @@ Sub2API 是一个 AI API 网关平台，用于分发和管理 AI 产品订阅的
 
 ---
 
+## Sprout 定制配置
+
+本 fork 的所有定制配置统一使用 `sprout.*`（环境变量前缀 `SPROUT_`）命名空间，
+与上游 Sub2API 的配置互不冲突。全部默认关闭，未启用时行为与上游一致：
+
+| 配置项 | 环境变量 | 默认值 | 说明 |
+|--------|----------|--------|------|
+| `sprout.internal_api.enabled` | `SPROUT_INTERNAL_API_ENABLED` | `false` | 启用平台/语音网关专用内部接口 |
+| `sprout.internal_api.token` | `SPROUT_INTERNAL_API_TOKEN` | 空 | 内部接口强 service token，最短 32 字符且不得为占位值 |
+| `sprout.child_policy.enabled` | `SPROUT_CHILD_POLICY_ENABLED` | `false` | 启用儿童年龄层模型与参数策略 |
+| `sprout.child_policy.default_age_band` | `SPROUT_CHILD_POLICY_DEFAULT_AGE_BAND` | 空 | 未携带策略版本时使用的年龄层 |
+| `sprout.child_policy.require_policy_version` | `SPROUT_CHILD_POLICY_REQUIRE_POLICY_VERSION` | `false` | 是否拒绝未携带策略版本的请求 |
+| `sprout.child_policy.inject_safety_boundary` | `SPROUT_CHILD_POLICY_INJECT_SAFETY_BOUNDARY` | `true` | 是否注入儿童安全系统边界 |
+| `sprout.child_policy.safety_boundary` | `SPROUT_CHILD_POLICY_SAFETY_BOUNDARY` | 内置边界 | 覆盖默认安全边界文本，最长 4096 字节 |
+
+`sprout.child_policy.policy_versions` 与 `sprout.child_policy.age_bands` 为结构化
+配置项，只能通过 YAML 配置，用于把平台下发的策略版本映射到年龄层，并声明每层的
+模型白名单、输出上限与内容分级。内部接口默认关闭，启用后必须配置足够强的 service
+token，否则进程启动即失败。
+
+---
+
 ## Nginx 反向代理注意事项
 
 通过 Nginx 反向代理 Sub2API（或 CRS 服务）并搭配 Codex CLI 使用时，需要在 Nginx 配置的 `http` 块中添加：
