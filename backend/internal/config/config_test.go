@@ -128,6 +128,48 @@ func TestValidateSproutInternalAPIRequiresStrongTokenWhenEnabled(t *testing.T) {
 	}
 }
 
+func TestSproutChildPolicyDisabledByDefault(t *testing.T) {
+	resetViperWithJWTSecret(t)
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.False(t, cfg.Sprout.ChildPolicy.Enabled)
+	require.Empty(t, cfg.Sprout.ChildPolicy.SafetyBoundary)
+}
+
+func TestSproutChildPolicyFillsBuiltInDefaultsWhenEnabled(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	t.Setenv("SPROUT_CHILD_POLICY_ENABLED", "true")
+	t.Setenv("SPROUT_CHILD_POLICY_DEFAULT_AGE_BAND", "6-8")
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.True(t, cfg.Sprout.ChildPolicy.Enabled)
+	require.NotEmpty(t, cfg.Sprout.ChildPolicy.AgeBands)
+	require.NotEmpty(t, cfg.Sprout.ChildPolicy.SafetyBoundary)
+}
+
+func TestSproutChildPolicyRejectsUnknownDefaultBand(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	t.Setenv("SPROUT_CHILD_POLICY_ENABLED", "true")
+	t.Setenv("SPROUT_CHILD_POLICY_DEFAULT_AGE_BAND", "99-100")
+
+	cfg, err := Load()
+	require.Error(t, err)
+	require.Nil(t, cfg)
+	require.ErrorContains(t, err, "sprout.child_policy.default_age_band")
+}
+
+func TestSproutChildPolicyRejectsEnabledWithoutDefaultOrVersions(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	t.Setenv("SPROUT_CHILD_POLICY_ENABLED", "true")
+
+	cfg, err := Load()
+	require.Error(t, err)
+	require.Nil(t, cfg)
+	require.ErrorContains(t, err, "sprout.child_policy")
+}
+
 func TestLoadRedisUsernameFromEnvironment(t *testing.T) {
 	resetViperWithJWTSecret(t)
 	t.Setenv("REDIS_USERNAME", "app-user")
