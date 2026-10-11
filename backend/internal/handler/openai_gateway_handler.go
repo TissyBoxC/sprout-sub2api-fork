@@ -48,6 +48,9 @@ type OpenAIGatewayHandler struct {
 	imageLimiter               *imageConcurrencyLimiter
 	maxAccountSwitches         int
 	cfg                        *config.Config
+	// sproutAuditService records sanitized Sprout model-call audit rows. It is
+	// optional: when nil the fork skips call audit and keeps upstream behavior.
+	sproutAuditService *service.AuditLogService
 }
 
 type openAIWSTurnChannelMappingSnapshot struct {
@@ -389,6 +392,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	// 局部兜底：确保该 handler 内部任何 panic 都不会击穿到进程级。
 	streamStarted := false
 	defer h.recoverResponsesPanic(c, &streamStarted)
+	bindSproutCallAudit(c, h.sproutAuditService)
 	compactStartedAt := time.Now()
 	defer h.logOpenAIRemoteCompactOutcome(c, compactStartedAt)
 	setOpenAIClientTransportHTTP(c)
@@ -826,6 +830,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
 			sessionID := service.ExtractClientSessionID(c)
 			cyberBlocked := service.GetOpsCyberPolicy(c) != nil
+			recordSproutCallAuditOutcome(c, sproutCallAuditOutcomeFromOpenAI(res))
 			h.submitOpenAIUsageRecordTask(c.Request.Context(), res, func(ctx context.Context) {
 				if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
 					Result:             res,
@@ -1152,6 +1157,7 @@ func (h *OpenAIGatewayHandler) logOpenAIRemoteCompactOutcome(c *gin.Context, sta
 func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 	streamStarted := false
 	defer h.recoverAnthropicMessagesPanic(c, &streamStarted)
+	bindSproutCallAudit(c, h.sproutAuditService)
 
 	requestStart := time.Now()
 
@@ -1420,6 +1426,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
 			sessionID := service.ExtractClientSessionID(c)
 			cyberBlocked := service.GetOpsCyberPolicy(c) != nil
+			recordSproutCallAuditOutcome(c, sproutCallAuditOutcomeFromOpenAI(res))
 			h.submitOpenAIUsageRecordTask(c.Request.Context(), res, func(ctx context.Context) {
 				if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
 					Result:             res,
@@ -3060,6 +3067,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				sessionID := service.ExtractClientSessionID(c)
 				turnRecordPricingAt := turnPricing.currentOr(turnStart)
 				cyberBlocked := service.GetOpsCyberPolicy(c) != nil
+				recordSproutCallAuditOutcome(c, sproutCallAuditOutcomeFromOpenAI(result))
 				h.submitOpenAIUsageRecordTask(ctx, result, func(taskCtx context.Context) {
 					if err := h.gatewayService.RecordUsage(taskCtx, &service.OpenAIRecordUsageInput{
 						Result:             result,
@@ -3431,6 +3439,7 @@ func (h *OpenAIGatewayHandler) handleFailoverExhausted(c *gin.Context, failoverE
 	// surfacing scheduler/upstream internals. Only applies before any bytes are
 	// committed; an in-flight stream reports its own SSE error event.
 	if !streamStarted && middleware2.SproutTaggedRequest(c) {
+		recordSproutCallAuditFailure(c, sproutCallAuditServiceFromContext(c))
 		middleware2.WriteSproutProviderUnavailable(c)
 		return
 	}
@@ -3578,6 +3587,9 @@ func isSafeRetryAfter(value string) bool {
 // handleFailoverExhaustedSimple 简化版本，用于没有响应体的情况
 func (h *OpenAIGatewayHandler) handleFailoverExhaustedSimple(c *gin.Context, statusCode int, streamStarted bool) {
 	if !streamStarted && middleware2.SproutTaggedRequest(c) {
+		if h.sproutAuditService != nil {
+			recordSproutCallAuditFailure(c, h.sproutAuditService)
+		}
 		middleware2.WriteSproutProviderUnavailable(c)
 		return
 	}

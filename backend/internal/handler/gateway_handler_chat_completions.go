@@ -22,6 +22,7 @@ import (
 // forwards to Anthropic upstream, and converts responses back to Chat Completions format.
 func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 	streamStarted := false
+	bindSproutCallAudit(c, h.sproutAuditService)
 
 	requestStart := time.Now()
 
@@ -363,6 +364,10 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
 		sessionID := gatewayUsageSessionID(c)
 		stampForwardRequestedReasoningEffort(result, service.RequestedReasoningEffortFromContext(c.Request.Context()))
+		// The call reached an upstream result, so record the sanitized call audit
+		// before the asynchronous billing task. Only Sprout-tagged requests write
+		// a row.
+		recordSproutCallAuditOutcome(c, sproutCallAuditOutcomeFromClaude(result))
 		h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
 			if err := h.gatewayService.RecordUsage(ctx, &service.RecordUsageInput{
 				Result:             result,
@@ -407,6 +412,9 @@ func (h *GatewayHandler) handleCCFailoverExhausted(c *gin.Context, lastErr *serv
 		return
 	}
 	if middleware2.SproutTaggedRequest(c) {
+		if h.sproutAuditService != nil {
+			recordSproutCallAuditFailure(c, h.sproutAuditService)
+		}
 		middleware2.WriteSproutProviderUnavailable(c)
 		return
 	}

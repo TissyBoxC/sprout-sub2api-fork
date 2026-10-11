@@ -39,6 +39,11 @@ func degradeSproutConversationIfTagged(c *gin.Context) bool {
 	if c.Writer.Written() || service.IsResponseCommitted(c) {
 		return false
 	}
+	// The degradation is the terminal result for a robot conversation that never
+	// produced an upstream result, so record the sanitized failure call audit
+	// here (the success path records its own row). Untagged callers never reach
+	// this point.
+	recordSproutCallAuditFailure(c, sproutCallAuditServiceFromContext(c))
 	middleware2.WriteSproutProviderUnavailable(c)
 	return true
 }

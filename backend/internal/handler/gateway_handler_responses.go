@@ -22,6 +22,7 @@ import (
 // upstream, and converts responses back to Responses format.
 func (h *GatewayHandler) Responses(c *gin.Context) {
 	streamStarted := false
+	bindSproutCallAudit(c, h.sproutAuditService)
 
 	requestStart := time.Now()
 
@@ -340,6 +341,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
 		sessionID := service.ExtractClientSessionID(c)
 		stampForwardRequestedReasoningEffort(result, service.RequestedReasoningEffortFromContext(c.Request.Context()))
+		recordSproutCallAuditOutcome(c, sproutCallAuditOutcomeFromClaude(result))
 		h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
 			if err := h.gatewayService.RecordUsage(ctx, &service.RecordUsageInput{
 				Result:             result,

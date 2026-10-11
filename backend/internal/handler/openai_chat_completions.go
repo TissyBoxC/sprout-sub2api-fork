@@ -23,6 +23,7 @@ import (
 func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 	streamStarted := false
 	defer h.recoverResponsesPanic(c, &streamStarted)
+	bindSproutCallAudit(c, h.sproutAuditService)
 
 	requestStart := time.Now()
 
@@ -313,6 +314,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 			quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
 			sessionID := gatewayUsageSessionID(c)
 			cyberBlocked := service.GetOpsCyberPolicy(c) != nil
+			recordSproutCallAuditOutcome(c, sproutCallAuditOutcomeFromOpenAI(res))
 			h.submitOpenAIUsageRecordTask(c.Request.Context(), res, func(ctx context.Context) {
 				if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
 					Result:             res,
