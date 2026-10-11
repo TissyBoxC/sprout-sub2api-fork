@@ -43,6 +43,10 @@ const (
 
 // SproutRequestLabels contains validated pseudonymous labels for one request.
 // It must never contain personal data, prompts, credentials, or free-form text.
+//
+// TenantID identifies the family/tenant scope: one guardian household. It is
+// validated as strictly as the device tag so a caller cannot smuggle free text
+// or an email address into usage provenance.
 type SproutRequestLabels struct {
 	TenantID       string
 	DeviceID       string
@@ -72,9 +76,9 @@ var sproutProjectPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 //
 // It is intentionally scoped to the AI gateway completion and model discovery
 // routes (see isSproutTaggedGatewayRoute) so the headers cannot influence or
-// masquerade as labels on the admin/user panel endpoints. Device and project
-// headers are rejected when present but invalid; the remaining legacy labels
-// keep their historical "drop invalid value" behavior for compatibility.
+// masquerade as labels on the admin/user panel endpoints. Tenant, device, and
+// project headers are rejected when present but invalid; the remaining legacy
+// labels keep their historical "drop invalid value" behavior for compatibility.
 func SproutRequestLabelsMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if c.Request == nil || !isSproutTaggedGatewayRoute(c) {
@@ -82,6 +86,11 @@ func SproutRequestLabelsMiddleware() gin.HandlerFunc {
 			return
 		}
 
+		tenantID, ok := validatedSproutTenantID(c.GetHeader(sproutTenantIDHeader))
+		if !ok {
+			writeSproutInvalidTag(c, sproutTenantIDHeader)
+			return
+		}
 		deviceID, ok := validatedSproutDeviceID(c.GetHeader(sproutDeviceIDHeader))
 		if !ok {
 			writeSproutInvalidTag(c, sproutDeviceIDHeader)
@@ -94,7 +103,7 @@ func SproutRequestLabelsMiddleware() gin.HandlerFunc {
 		}
 
 		labels := SproutRequestLabels{
-			TenantID:       validSproutLabel(c.GetHeader(sproutTenantIDHeader)),
+			TenantID:       tenantID,
 			DeviceID:       deviceID,
 			Project:        project,
 			RequestPurpose: validSproutLabel(c.GetHeader(sproutRequestPurposeHeader)),
@@ -111,6 +120,25 @@ func SproutRequestLabelsMiddleware() gin.HandlerFunc {
 		c.Request = c.Request.WithContext(ctx)
 		c.Next()
 	}
+}
+
+// sproutTenantIDPattern matches the platform family/tenant identifier
+// (^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$ for UUIDs and prefixed IDs). It is
+// deliberately the same alphabet as the device tag: no whitespace, '@', '/',
+// or control characters, so a caller cannot route free text into provenance.
+var sproutTenantIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$`)
+
+// validatedSproutTenantID accepts an absent tenant tag (untagged callers keep
+// working) and rejects a present-but-malformed value.
+func validatedSproutTenantID(value string) (string, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", true
+	}
+	if !sproutTenantIDPattern.MatchString(value) {
+		return "", false
+	}
+	return value, true
 }
 
 // sproutGatewayPathPrefixes are the AI gateway mount points. The management
@@ -211,20 +239,23 @@ func WriteSproutProviderUnavailable(c *gin.Context) {
 }
 
 // SproutUsageSessionID returns a bounded usage-log correlation value that
-// carries validated device/project provenance. It never contains prompt, reply,
-// credential, or audio data; unnamed requests return "" so the existing client
-// session extraction applies.
+// carries validated tenant/device/project provenance. It never contains prompt,
+// reply, credential, or audio data; unnamed requests return "" so the existing
+// client session extraction applies.
 //
 // The fork has no dedicated provenance column and the change is scoped to
 // backend/internal, so the provenance rides on the existing
 // usage_logs.session_id text column.
 func SproutUsageSessionID(c *gin.Context) string {
 	labels := GetSproutRequestLabels(c)
-	if labels.DeviceID == "" && labels.Project == "" {
+	if labels.TenantID == "" && labels.DeviceID == "" && labels.Project == "" {
 		return ""
 	}
 
 	value := "sprout"
+	if labels.TenantID != "" {
+		value += ";tenant:" + labels.TenantID
+	}
 	if labels.DeviceID != "" {
 		value += ";device:" + labels.DeviceID
 	}

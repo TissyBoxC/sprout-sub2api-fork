@@ -136,6 +136,75 @@ func TestSproutRequestLabelsRejectInvalidProjectTags(t *testing.T) {
 	}
 }
 
+func TestSproutRequestLabelsAcceptPlatformTenantIdentifiers(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+	}{
+		{name: "uuid", value: "9f1c2d34-5a6b-4c7d-8e9f-0123456789ab"},
+		{name: "family prefix", value: "family_ab12cd34ef56"},
+		{name: "uppercase", value: "TENANT-0001"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var labels *SproutRequestLabels
+			router := newSproutLabelsTestRouter(t, &labels)
+
+			response := doSproutRequest(router, http.MethodPost, "/v1/chat/completions", map[string]string{
+				sproutTenantIDHeader: tt.value,
+			})
+
+			require.Equal(t, http.StatusNoContent, response.Code)
+			require.NotNil(t, labels)
+			require.Equal(t, tt.value, labels.TenantID)
+		})
+	}
+}
+
+// A tenant tag is no less sensitive than the device tag: a present but
+// malformed value must fail closed instead of being silently dropped into
+// usage provenance.
+func TestSproutRequestLabelsRejectInvalidTenantTags(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+	}{
+		{name: "too short", value: "fam1"},
+		{name: "oversized", value: strings.Repeat("a", 129)},
+		{name: "space", value: "tenant 001"},
+		{name: "email", value: "guardian@example.com"},
+		{name: "path separator", value: "tenant/child"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			router := newSproutLabelsTestRouter(t, nil)
+
+			response := doSproutRequest(router, http.MethodPost, "/v1/chat/completions", map[string]string{
+				sproutTenantIDHeader: tt.value,
+			})
+
+			require.Equal(t, http.StatusBadRequest, response.Code)
+			require.Contains(t, response.Body.String(), SproutInvalidTagCode)
+			require.Contains(t, response.Body.String(), sproutTenantIDHeader)
+		})
+	}
+}
+
+func TestSproutRequestLabelsAbsentTenantTagPassesThrough(t *testing.T) {
+	var labels *SproutRequestLabels
+	router := newSproutLabelsTestRouter(t, &labels)
+
+	response := doSproutRequest(router, http.MethodPost, "/v1/chat/completions", map[string]string{
+		sproutDeviceIDHeader: "device_001",
+	})
+
+	require.Equal(t, http.StatusNoContent, response.Code)
+	require.NotNil(t, labels)
+	require.Empty(t, labels.TenantID)
+}
+
 func TestSproutRequestLabelsUntaggedRequestsPassThrough(t *testing.T) {
 	router := newSproutLabelsTestRouter(t, nil)
 	response := doSproutRequest(router, http.MethodPost, "/v1/chat/completions", nil)
@@ -196,6 +265,15 @@ func TestSproutUsageSessionIDCarriesProvenanceWithoutContent(t *testing.T) {
 			name:        "device and project",
 			headers:     map[string]string{sproutDeviceIDHeader: "device_001", sproutProjectHeader: "voice"},
 			expectParts: []string{"device:device_001", "project:voice"},
+		},
+		{
+			name: "tenant device and project",
+			headers: map[string]string{
+				sproutTenantIDHeader: "family_ab12cd34ef56",
+				sproutDeviceIDHeader: "device_001",
+				sproutProjectHeader:  "voice",
+			},
+			expectParts: []string{"tenant:family_ab12cd34ef56", "device:device_001", "project:voice"},
 		},
 		{
 			name:        "device only",
