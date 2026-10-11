@@ -37,6 +37,8 @@ func SetupRouter(
 	cfg *config.Config,
 	redisClient *redis.Client,
 	adminService service.AdminService,
+	usageService *service.UsageService,
+	auditLogService *service.AuditLogService,
 ) *gin.Engine {
 	middleware2.SetIngressRejectRecorder(opsService)
 	// 缓存 iframe 页面的 origin 列表，用于动态注入 CSP frame-src
@@ -94,7 +96,7 @@ func SetupRouter(
 	}
 
 	// 注册路由
-	registerRoutes(r, handlers, jwtAuth, optionalJWTAuth, adminAuth, apiKeyAuth, auditLog, stepUpAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg, redisClient, adminService)
+	registerRoutes(r, handlers, jwtAuth, optionalJWTAuth, adminAuth, apiKeyAuth, auditLog, stepUpAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg, redisClient, adminService, usageService, auditLogService)
 
 	return r
 }
@@ -117,6 +119,8 @@ func registerRoutes(
 	cfg *config.Config,
 	redisClient *redis.Client,
 	adminService service.AdminService,
+	usageService *service.UsageService,
+	auditLogService *service.AuditLogService,
 ) {
 	// 通用路由（健康检查、状态等）
 	routes.RegisterCommonRoutes(r)
@@ -125,6 +129,9 @@ func registerRoutes(
 		APIKeyService:         apiKeyService,
 		SettingService:        settingService,
 		ChannelMonitorService: h.ChannelMonitor.MonitorService(),
+		AuditLogService:       auditLogService,
+		UsageLogService:       usageService,
+		ChildPolicy:           &cfg.Sprout.ChildPolicy,
 	})
 
 	// API v1

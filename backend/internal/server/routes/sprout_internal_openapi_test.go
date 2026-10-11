@@ -69,6 +69,73 @@ func TestSproutInternalOpenAPIContract(t *testing.T) {
 		specValue(t, errorSchema, "properties", "error", "properties", "code", "enum"),
 	)
 
+	childPolicyOperation := specMap(
+		t,
+		specValue(t, specification, "paths", "/internal/sprout/v1/child-policy", "get"),
+	)
+	require.Equal(t, "getSproutChildPolicy", childPolicyOperation["operationId"])
+	require.Equal(
+		t,
+		[]any{map[string]any{"serviceToken": []any{}}},
+		childPolicyOperation["security"],
+	)
+	require.Equal(
+		t,
+		"#/components/schemas/SproutChildPolicyEnvelope",
+		specValue(
+			t,
+			childPolicyOperation,
+			"responses",
+			"200",
+			"content",
+			"application/json",
+			"schema",
+			"$ref",
+		),
+	)
+
+	usageOperation := specMap(
+		t,
+		specValue(
+			t,
+			specification,
+			"paths",
+			"/internal/sprout/v1/usage/{provider_account_id}",
+			"get",
+		),
+	)
+	require.Equal(t, "getSproutUsageReconciliation", usageOperation["operationId"])
+	require.Equal(
+		t,
+		"#/components/schemas/SproutUsageReconciliationEnvelope",
+		specValue(
+			t,
+			usageOperation,
+			"responses",
+			"200",
+			"content",
+			"application/json",
+			"schema",
+			"$ref",
+		),
+	)
+
+	usageEnvelope := specMap(
+		t,
+		specValue(
+			t,
+			specification,
+			"components",
+			"schemas",
+			"SproutUsageReconciliationEnvelope",
+		),
+	)
+	require.Equal(
+		t,
+		"#/components/schemas/SproutUsageReconciliation",
+		specValue(t, usageEnvelope, "properties", "data", "$ref"),
+	)
+
 	deleteOperation := specMap(
 		t,
 		specValue(

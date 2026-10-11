@@ -58,6 +58,13 @@ type SproutInternalDependencies struct {
 	SettingService        *service.SettingService
 	ChannelMonitorService *service.ChannelMonitorService
 	AuditLogService       *service.AuditLogService
+	// UsageLogService reads aggregated model usage for one account so the
+	// platform can reconcile spend without direct database access.
+	UsageLogService *service.UsageService
+	// ChildPolicy carries the resolved fork child policy. It is read-only here:
+	// the platform queries the effective policy version and age bands, the fork
+	// remains the enforcement owner.
+	ChildPolicy *config.SproutChildPolicyConfig
 }
 
 // RegisterSproutInternalRoutes registers fork-owned service endpoints.
@@ -77,6 +84,11 @@ func RegisterSproutInternalRoutes(
 	internal.Use(auditSproutInternalMutation(dependencies.AuditLogService))
 	internal.GET("/v1/runtime", sproutRuntimeHandler)
 	internal.GET("/v1/runtime-config", sproutRuntimeConfigHandler(dependencies))
+	internal.GET("/v1/child-policy", sproutChildPolicyHandler(dependencies))
+	internal.GET(
+		"/v1/usage/:provider_account_id",
+		sproutUsageReconciliationHandler(dependencies),
+	)
 	internal.POST("/v1/ai-accounts", sproutCreateAIAccountHandler(dependencies))
 	internal.GET("/v1/ai-accounts/:provider_account_id", sproutGetAIAccountHandler(dependencies))
 	internal.PUT("/v1/ai-accounts/:provider_account_id", sproutUpdateAIAccountHandler(dependencies))
@@ -226,6 +238,8 @@ func sproutRuntimeHandler(c *gin.Context) {
 			"ai_account_lifecycle",
 			"account_model_allowlist",
 			"api_key_lifecycle",
+			"usage_reconciliation",
+			"child_policy_query",
 		},
 	})
 }
@@ -311,6 +325,160 @@ func selectSproutRecommendedModel(models []sproutModelLatency) string {
 		}
 	}
 	return recommendedModel
+}
+
+// sproutChildPolicyHandler lets the platform read the exact child policy the
+// fork is enforcing so the platform can align its own age-band and content
+// ratings. The response is content-free: it exposes only age bands, model
+// allowlists, token ceilings, and enabled flags. It never returns the internal
+// service token or the safety-boundary text, which stays inside enforcement.
+func sproutChildPolicyHandler(
+	dependencies SproutInternalDependencies,
+) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if dependencies.ChildPolicy == nil {
+			writeSproutError(c, http.StatusServiceUnavailable, "service_unavailable", "策略服务暂不可用", true)
+			return
+		}
+		policy := *dependencies.ChildPolicy
+
+		ageBands := make([]gin.H, 0, len(policy.AgeBands))
+		for _, band := range policy.AgeBands {
+			ageBands = append(ageBands, gin.H{
+				"name":              band.Name,
+				"allowed_models":    band.AllowedModels,
+				"max_output_tokens": band.MaxOutputTokens,
+				"content_rating":    band.ContentRating,
+			})
+		}
+		policyVersions := make([]gin.H, 0, len(policy.PolicyVersions))
+		for _, binding := range policy.PolicyVersions {
+			policyVersions = append(policyVersions, gin.H{
+				"version":  binding.Version,
+				"age_band": binding.AgeBand,
+			})
+		}
+
+		writeSproutSuccess(c, gin.H{
+			"enabled":                policy.Enabled,
+			"require_policy_version": policy.RequirePolicyVersion,
+			"default_age_band":       policy.DefaultAgeBand,
+			"inject_safety_boundary": policy.InjectSafetyBoundary,
+			"policy_versions":        policyVersions,
+			"age_bands":              ageBands,
+		})
+	}
+}
+
+// sproutUsageReconciliationHandler returns aggregated, content-free usage for one
+// controlled provider account so the platform can reconcile spend without
+// reading sub2api tables directly. Only the aggregate token/cost totals and the
+// per-model breakdown are exposed; the underlying usage rows and any prompt or
+// response content are never returned.
+func sproutUsageReconciliationHandler(
+	dependencies SproutInternalDependencies,
+) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if dependencies.UsageLogService == nil {
+			writeSproutError(c, http.StatusServiceUnavailable, "service_unavailable", "用量服务暂不可用", true)
+			return
+		}
+		user, err := sproutFindAIAccount(c, dependencies)
+		if err != nil {
+			writeSproutServiceError(c, err, "读取 AI 账号失败", true)
+			return
+		}
+		startTime, endTime, ok := parseSproutUsageWindow(c)
+		if !ok {
+			writeSproutError(c, http.StatusBadRequest, "invalid_request", "查询时间范围不正确", false)
+			return
+		}
+
+		totals, err := dependencies.UsageLogService.GetStatsByUser(
+			c.Request.Context(),
+			user.ID,
+			startTime,
+			endTime,
+		)
+		if err != nil {
+			writeSproutServiceError(c, err, "读取用量失败", true)
+			return
+		}
+		modelStats, err := dependencies.UsageLogService.GetUserModelStats(
+			c.Request.Context(),
+			user.ID,
+			startTime,
+			endTime,
+		)
+		if err != nil {
+			writeSproutServiceError(c, err, "读取用量失败", true)
+			return
+		}
+
+		models := make([]gin.H, 0, len(modelStats))
+		for _, stat := range modelStats {
+			models = append(models, gin.H{
+				"model":                 stat.Model,
+				"requests":              stat.Requests,
+				"input_tokens":          stat.InputTokens,
+				"output_tokens":         stat.OutputTokens,
+				"cache_creation_tokens": stat.CacheCreationTokens,
+				"cache_read_tokens":     stat.CacheReadTokens,
+				"total_tokens":          stat.TotalTokens,
+				"cost_usd":              stat.Cost,
+				"actual_cost_usd":       stat.ActualCost,
+			})
+		}
+
+		writeSproutSuccess(c, gin.H{
+			"provider_account_id": sproutProviderAccountID(user),
+			"user_id":             user.ID,
+			"start_time":          startTime.UTC().Format(time.RFC3339),
+			"end_time":            endTime.UTC().Format(time.RFC3339),
+			"totals": gin.H{
+				"requests":              totals.TotalRequests,
+				"input_tokens":          totals.TotalInputTokens,
+				"output_tokens":         totals.TotalOutputTokens,
+				"cache_creation_tokens": totals.TotalCacheCreationTokens,
+				"cache_read_tokens":     totals.TotalCacheReadTokens,
+				"total_tokens":          totals.TotalTokens,
+				"cost_usd":              totals.TotalCost,
+				"actual_cost_usd":       totals.TotalActualCost,
+				"average_duration_ms":   totals.AverageDurationMs,
+			},
+			"models": models,
+		})
+	}
+}
+
+// sproutUsageWindowMaxDays bounds a reconciliation query so a single internal
+// call cannot force an unbounded table scan. The default window is the last day.
+const sproutUsageWindowMaxDays = 92
+
+func parseSproutUsageWindow(c *gin.Context) (time.Time, time.Time, bool) {
+	endTime := time.Now().UTC()
+	if raw := strings.TrimSpace(c.Query("end_time")); raw != "" {
+		parsed, err := time.Parse(time.RFC3339, raw)
+		if err != nil {
+			return time.Time{}, time.Time{}, false
+		}
+		endTime = parsed.UTC()
+	}
+	startTime := endTime.AddDate(0, 0, -1)
+	if raw := strings.TrimSpace(c.Query("start_time")); raw != "" {
+		parsed, err := time.Parse(time.RFC3339, raw)
+		if err != nil {
+			return time.Time{}, time.Time{}, false
+		}
+		startTime = parsed.UTC()
+	}
+	if startTime.After(endTime) {
+		return time.Time{}, time.Time{}, false
+	}
+	if endTime.Sub(startTime) > sproutUsageWindowMaxDays*24*time.Hour {
+		return time.Time{}, time.Time{}, false
+	}
+	return startTime, endTime, true
 }
 
 type sproutCreateAIAccountRequest struct {

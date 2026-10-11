@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -653,4 +654,129 @@ func newSproutInternalTestRouter() *gin.Engine {
 	router := gin.New()
 	RegisterSproutInternalRoutes(router, sproutInternalTestConfig(), SproutInternalDependencies{})
 	return router
+}
+
+func TestSproutChildPolicyEndpointReturnsContentFreePolicy(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	policy := config.SproutChildPolicyConfig{
+		Enabled:              true,
+		RequirePolicyVersion: true,
+		DefaultAgeBand:       "6-8",
+		InjectSafetyBoundary: true,
+		SafetyBoundary:       "secret boundary that must never be exposed",
+		PolicyVersions: []config.SproutPolicyVersionBinding{
+			{Version: "2026-10-01", AgeBand: "6-8"},
+		},
+		AgeBands: []config.SproutAgeBandPolicy{
+			{
+				Name:            "6-8",
+				AllowedModels:   []string{"gpt-5-mini"},
+				MaxOutputTokens: 1536,
+				ContentRating:   "G",
+			},
+		},
+	}
+	cfg := &config.Config{Sprout: config.SproutConfig{
+		InternalAPI: config.SproutInternalAPIConfig{Enabled: true, Token: sproutInternalTestToken},
+		ChildPolicy: policy,
+	}}
+	router := gin.New()
+	RegisterSproutInternalRoutes(router, cfg, SproutInternalDependencies{ChildPolicy: &policy})
+
+	request := httptest.NewRequest(http.MethodGet, "/internal/sprout/v1/child-policy", nil)
+	request.Header.Set("Authorization", "Bearer "+sproutInternalTestToken)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+
+	require.Equal(t, http.StatusOK, response.Code)
+	require.NotContains(t, response.Body.String(), "secret boundary")
+	require.NotContains(t, response.Body.String(), sproutInternalTestToken)
+
+	var envelope struct {
+		Data  map[string]any   `json:"data"`
+		Error *sproutErrorBody `json:"error"`
+	}
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &envelope))
+	require.Nil(t, envelope.Error)
+	require.Equal(t, true, envelope.Data["enabled"])
+	require.Equal(t, true, envelope.Data["require_policy_version"])
+	require.Equal(t, "6-8", envelope.Data["default_age_band"])
+
+	ageBands, ok := envelope.Data["age_bands"].([]any)
+	require.True(t, ok, "age_bands missing: %s", response.Body.String())
+	require.Len(t, ageBands, 1)
+}
+
+func TestSproutChildPolicyEndpointFailsClosedWithoutPolicy(t *testing.T) {
+	router := newSproutInternalTestRouter()
+	request := httptest.NewRequest(http.MethodGet, "/internal/sprout/v1/child-policy", nil)
+	request.Header.Set("Authorization", "Bearer "+sproutInternalTestToken)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+
+	require.Equal(t, http.StatusServiceUnavailable, response.Code)
+}
+
+func TestSproutUsageReconciliationParsesWindow(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	endTimestamp := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
+	startTimestamp := endTimestamp.Add(-6 * time.Hour)
+
+	tests := []struct {
+		name      string
+		query     string
+		wantStart time.Time
+		wantEnd   time.Time
+		wantOK    bool
+		wantEmpty bool
+	}{
+		{
+			name:      "defaults to last day",
+			wantOK:    true,
+			wantEmpty: true,
+		},
+		{
+			name:      "honors explicit window",
+			query:     "?start_time=" + url.QueryEscape(startTimestamp.Format(time.RFC3339)) + "&end_time=" + url.QueryEscape(endTimestamp.Format(time.RFC3339)),
+			wantStart: startTimestamp,
+			wantEnd:   endTimestamp,
+			wantOK:    true,
+		},
+		{
+			name:   "rejects inverted window",
+			query:  "?start_time=" + url.QueryEscape(endTimestamp.Format(time.RFC3339)) + "&end_time=" + url.QueryEscape(startTimestamp.Format(time.RFC3339)),
+			wantOK: false,
+		},
+		{
+			name:   "rejects over-long window",
+			query:  "?start_time=" + url.QueryEscape(startTimestamp.AddDate(0, 0, -200).Format(time.RFC3339)) + "&end_time=" + url.QueryEscape(endTimestamp.Format(time.RFC3339)),
+			wantOK: false,
+		},
+		{
+			name:   "rejects malformed timestamp",
+			query:  "?start_time=not-a-time",
+			wantOK: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			context, _ := gin.CreateTestContext(httptest.NewRecorder())
+			context.Request = httptest.NewRequest(http.MethodGet, "/internal/sprout/v1/usage/x"+tt.query, nil)
+
+			startTime, endTime, ok := parseSproutUsageWindow(context)
+			require.Equal(t, tt.wantOK, ok)
+			if !tt.wantOK {
+				return
+			}
+			if tt.wantEmpty {
+				require.WithinDuration(t, time.Now().UTC(), endTime, time.Minute)
+				require.Equal(t, 24*time.Hour, endTime.Sub(startTime))
+				return
+			}
+			require.True(t, startTime.Equal(tt.wantStart), "start: got %s want %s", startTime, tt.wantStart)
+			require.True(t, endTime.Equal(tt.wantEnd), "end: got %s want %s", endTime, tt.wantEnd)
+		})
+	}
 }
