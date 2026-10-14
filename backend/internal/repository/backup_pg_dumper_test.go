@@ -1,3 +1,5 @@
+//go:build unit
+
 package repository
 
 import (
@@ -15,11 +17,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const (
-	pgDumperHelperModeEnv = "SUB2API_PG_DUMPER_HELPER_MODE"
-	pgDumperHelperData    = "backup-data"
-	pgDumperHelperPartial = "partial-backup"
-)
+func TestMain(m *testing.M) {
+	if mode := os.Getenv(pgDumperHelperModeEnv); mode != "" {
+		runPgDumperHelper(mode)
+		return
+	}
+	os.Exit(m.Run())
+}
 
 func pgDumperHelperCommand(
 	ctx context.Context,
