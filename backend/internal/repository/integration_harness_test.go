@@ -42,6 +42,20 @@ var (
 	redisNamespaceSeq uint64
 )
 
+func runPgDumperHelper(mode string) {
+	switch mode {
+	case "success":
+		_, _ = fmt.Fprint(os.Stdout, pgDumperHelperData)
+	case "partial-failure":
+		_, _ = fmt.Fprint(os.Stdout, pgDumperHelperPartial)
+		os.Exit(7)
+	case "exit-success":
+	default:
+		fmt.Fprintf(os.Stderr, "unknown helper mode %q\n", mode)
+		os.Exit(2)
+	}
+}
+
 func TestMain(m *testing.M) {
 	// The pg_dump backup fixture re-executes this test binary with a mode
 	// variable to avoid relying on the Unix-only `sh -c` helper.
