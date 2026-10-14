@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"testing"
 
@@ -20,17 +21,6 @@ const (
 	pgDumperHelperData    = "backup-data"
 	pgDumperHelperPartial = "partial-backup"
 )
-
-// TestMain lets tests replace the Unix-only `sh -c` fixture with a portable
-// helper process. The helper is only activated by an environment variable that
-// is set on child processes created by this package's tests.
-func TestMain(m *testing.M) {
-	if mode := os.Getenv(pgDumperHelperModeEnv); mode != "" {
-		runPgDumperHelper(mode)
-		return
-	}
-	os.Exit(m.Run())
-}
 
 func runPgDumperHelper(mode string) {
 	switch mode {
@@ -50,7 +40,8 @@ func pgDumperHelperCommand(
 	ctx context.Context,
 	mode string,
 ) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, os.Args[0])
+	helperPath := filepath.Clean(os.Args[0])
+	cmd := exec.CommandContext(ctx, helperPath) //nolint:gosec // trusted test binary path
 	cmd.Env = append(os.Environ(), pgDumperHelperModeEnv+"="+mode)
 	return cmd
 }

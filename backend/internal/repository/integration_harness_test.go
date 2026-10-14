@@ -43,6 +43,13 @@ var (
 )
 
 func TestMain(m *testing.M) {
+	// The pg_dump backup fixture re-executes this test binary with a mode
+	// variable to avoid relying on the Unix-only `sh -c` helper.
+	if mode := os.Getenv(pgDumperHelperModeEnv); mode != "" {
+		runPgDumperHelper(mode)
+		return
+	}
+
 	ctx := context.Background()
 
 	if err := timezone.Init("UTC"); err != nil {
